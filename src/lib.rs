@@ -14,4 +14,8 @@ pub mod coding_strategy;
 pub mod plan;
 pub mod nl;
 pub mod filetypes;
+pub mod tools;
+pub mod tool_executor;
+#[cfg(feature = "agent")]
+pub mod agent;
 

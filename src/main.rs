@@ -37,6 +37,34 @@ fn main() {
         return;
     }
 
+    // --agent mode: LLM agent loop with tool calling
+    #[cfg(feature = "agent")]
+    if let Some(pos) = args.iter().position(|a| a == "--agent") {
+        let task = args.get(pos + 1).unwrap_or_else(|| {
+            eprintln!("{}", ui::error("Missing agent task"));
+            eprintln!();
+            eprintln!("  {} cadmus --agent \"<task description>\" [--read-only]", ui::dim("usage:"));
+            eprintln!();
+            eprintln!("  {} cadmus --agent \"find all uses of OnceLock in this project\"", ui::dim("  $"));
+            eprintln!("  {} cadmus --agent \"search for TODOs and list them\" --read-only", ui::dim("  $"));
+            eprintln!();
+            eprintln!("  {} CADMUS_LLM_URL=http://localhost:11434/v1/chat/completions", ui::dim("env:"));
+            eprintln!("  {}   CADMUS_MODEL=qwen2.5:3b", ui::dim("    "));
+            process::exit(1);
+        });
+
+        let read_only = args.iter().any(|a| a == "--read-only");
+        run_agent_mode(task, read_only);
+        return;
+    }
+
+    // --tools mode: list available agent tools
+    if args.iter().any(|a| a == "--tools") {
+        let read_only = args.iter().any(|a| a == "--read-only");
+        run_tools_mode(read_only);
+        return;
+    }
+
     // --demo mode: run strategy demos
     if args.iter().any(|a| a == "--demo") {
         run_demo_mode();
@@ -692,6 +720,98 @@ fn run_demo_mode() {
 
     println!("{}", ui::rule());
     println!("  {}", ui::status_ok("All strategies complete"));
+    println!();
+}
+
+// ---------------------------------------------------------------------------
+// Agent mode
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "agent")]
+fn run_agent_mode(task: &str, read_only: bool) {
+    use cadmus::agent::{AgentConfig, run_agent};
+
+    println!();
+    println!("{}", ui::banner("cadmus", VERSION, "agent mode"));
+    println!();
+    println!("  {} {}", ui::dim("task:"), task);
+    if read_only {
+        println!("  {} read-only mode (write ops disabled)", ui::dim("mode:"));
+    }
+    println!();
+
+    let config = AgentConfig {
+        read_only,
+        ..AgentConfig::default()
+    };
+
+    println!("  {} {}  {} {}",
+        ui::dim("llm:"), config.llm_url,
+        ui::dim("model:"), config.model,
+    );
+
+    let start = std::time::Instant::now();
+    let result = run_agent(task, &config);
+    let elapsed = start.elapsed();
+
+    println!();
+    if result.completed {
+        println!("  {}", ui::status_ok(&format!(
+            "Completed in {} tool call(s), {:.1}s",
+            result.tool_calls,
+            elapsed.as_secs_f64(),
+        )));
+    } else {
+        println!("  {}", ui::status_warn(&format!(
+            "Stopped after {} tool call(s), {:.1}s",
+            result.tool_calls,
+            elapsed.as_secs_f64(),
+        )));
+    }
+    println!();
+    println!("{}", result.summary);
+    println!();
+}
+
+// ---------------------------------------------------------------------------
+// Tools listing mode
+// ---------------------------------------------------------------------------
+
+fn run_tools_mode(read_only: bool) {
+    use cadmus::tools;
+
+    println!();
+    println!("{}", ui::banner("cadmus", VERSION, "available agent tools"));
+    println!();
+
+    let defs = tools::tool_definitions(read_only);
+    for tool in &defs {
+        let name = tool["function"]["name"].as_str().unwrap_or("?");
+        let desc = tool["function"]["description"].as_str().unwrap_or("");
+        let params = tool["function"]["parameters"]["required"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let is_write = tools::is_write_op(name);
+        let tag = if is_write { " [write]" } else { "" };
+        println!("  {} {}({}){}",
+            ui::dim("▸"),
+            name,
+            ui::dim(&params),
+            if is_write { ui::yellow(tag) } else { String::new() },
+        );
+        println!("    {}", ui::dim(desc));
+    }
+    println!();
+    println!("  {} {} tools available", ui::dim("total:"), defs.len());
+    if read_only {
+        println!("  {} write ops excluded (--read-only)", ui::dim("note:"));
+    }
     println!();
 }
 

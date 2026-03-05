@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 llm = ["dep:llama-cpp-2", "dep:encoding_rs"]
+agent = ["dep:ureq"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -15,4 +16,5 @@ thiserror = "2"
 rustyline = "15"
 llama-cpp-2 = { version = "0.1", features = ["metal"], optional = true }
 encoding_rs = { version = "0.8", optional = true }
+ureq = { version = "2", features = ["json"], optional = true }
 
