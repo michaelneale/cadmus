@@ -496,12 +496,13 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
                     args_display.join(", "),
                 );
 
-                // Execute
-                let result = tool_executor::execute_tool(
+                // Execute + annotate errors for LLM
+                let raw_result = tool_executor::execute_tool(
                     &action.tool,
                     &action.args,
                     config.read_only,
                 );
+                let result = tool_executor::annotate_error(&raw_result);
                 tool_call_count += 1;
 
                 // Display preview

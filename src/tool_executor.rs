@@ -433,6 +433,58 @@ fn truncate(s: &str, max_chars: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5: Error annotation — translate cryptic errors for the LLM
+// ---------------------------------------------------------------------------
+
+/// Annotate a failed tool result with LLM-friendly hints.
+/// The original error is preserved; the hint is appended.
+pub fn annotate_error(result: &ToolResult) -> ToolResult {
+    if result.success {
+        return result.clone();
+    }
+
+    let output = &result.output;
+    let hint = if output.contains("vector-ref: index is out of range for empty vector") {
+        "\n\nHint: The operation expected input data but received nothing. \
+         Check that input parameters (path, file, dir) point to existing files/directories."
+    } else if output.contains("No such file or directory") || output.contains("ENOENT") {
+        "\n\nHint: File or directory not found. Check the path is correct. \
+         Use read_file or list_source_files to verify it exists first."
+    } else if output.contains("Permission denied") || output.contains("EACCES") {
+        "\n\nHint: Permission denied. The file may be read-only or owned by another user."
+    } else if output.contains("codegen error: op") && output.contains("requires param") {
+        "\n\nHint: Missing required parameter. Check the tool signature and provide all required arguments."
+    } else if output.contains("Compilation error") {
+        "\n\nHint: The plan failed to compile. This usually means a type mismatch \
+         or missing parameter. Try a simpler approach or different tool."
+    } else if output.contains("write op") && output.contains("read-only") {
+        "\n\nHint: This operation modifies files and is blocked in read-only mode. \
+         Use read-only tools like grep_code, find_definition, file_outline instead."
+    } else if output.contains("error[E") {
+        // Rust compiler error
+        "\n\nHint: The Rust build failed. Look at the first error message for the fix. \
+         Use grep_code to find the problematic code, then sed_replace to fix it."
+    } else if output.contains("FAILED") && output.contains("test") {
+        "\n\nHint: Tests failed. Read the failure messages to understand what's wrong. \
+         Use grep_code to find the failing test, then fix the code."
+    } else if output.contains("command not found") {
+        "\n\nHint: The command is not installed on this system. Try a different approach."
+    } else {
+        "" // no specific hint
+    };
+
+    if hint.is_empty() {
+        result.clone()
+    } else {
+        ToolResult {
+            success: false,
+            output: format!("{}{}", output, hint),
+            script: result.script.clone(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -647,5 +699,65 @@ mod tests {
         // due to missing racket or param issues, but shouldn't say "not found")
         assert!(!result.output.contains("not found"),
             "plan should be found: {}", result.output);
+    }
+
+    // -- Phase 5: error annotation tests --
+
+    #[test]
+    fn test_annotate_success_passes_through() {
+        let result = ToolResult {
+            success: true,
+            output: "all good".into(),
+            script: None,
+        };
+        let annotated = annotate_error(&result);
+        assert_eq!(annotated.output, "all good");
+    }
+
+    #[test]
+    fn test_annotate_file_not_found() {
+        let result = ToolResult {
+            success: false,
+            output: "No such file or directory: /tmp/nope".into(),
+            script: None,
+        };
+        let annotated = annotate_error(&result);
+        assert!(annotated.output.contains("Hint:"));
+        assert!(annotated.output.contains("not found"));
+    }
+
+    #[test]
+    fn test_annotate_missing_param() {
+        let result = ToolResult {
+            success: false,
+            output: "codegen error: op 'grep_code' requires param 'pattern' but it was not provided".into(),
+            script: None,
+        };
+        let annotated = annotate_error(&result);
+        assert!(annotated.output.contains("Hint:"));
+        assert!(annotated.output.contains("required parameter"));
+    }
+
+    #[test]
+    fn test_annotate_rust_compiler_error() {
+        let result = ToolResult {
+            success: false,
+            output: "Exit code 1:\nerror[E0425]: cannot find value `x`".into(),
+            script: None,
+        };
+        let annotated = annotate_error(&result);
+        assert!(annotated.output.contains("Hint:"));
+        assert!(annotated.output.contains("Rust build failed"));
+    }
+
+    #[test]
+    fn test_annotate_unknown_error_no_hint() {
+        let result = ToolResult {
+            success: false,
+            output: "something weird happened".into(),
+            script: None,
+        };
+        let annotated = annotate_error(&result);
+        assert_eq!(annotated.output, "something weird happened");
     }
 }
