@@ -38,23 +38,22 @@ fn main() {
     }
 
     // --agent mode: LLM agent loop with tool calling
+    // With a task: single-shot mode (cadmus --agent "find bugs")
+    // Without a task: interactive session (cadmus --agent)
     #[cfg(feature = "agent")]
-    if let Some(pos) = args.iter().position(|a| a == "--agent") {
-        let task = args.get(pos + 1).unwrap_or_else(|| {
-            eprintln!("{}", ui::error("Missing agent task"));
-            eprintln!();
-            eprintln!("  {} cadmus --agent \"<task description>\" [--read-only]", ui::dim("usage:"));
-            eprintln!();
-            eprintln!("  {} cadmus --agent \"find all uses of OnceLock in this project\"", ui::dim("  $"));
-            eprintln!("  {} cadmus --agent \"search for TODOs and list them\" --read-only", ui::dim("  $"));
-            eprintln!();
-            eprintln!("  {} CADMUS_LLM_URL=http://localhost:11434/v1/chat/completions", ui::dim("env:"));
-            eprintln!("  {}   CADMUS_MODEL=qwen2.5:3b", ui::dim("    "));
-            process::exit(1);
-        });
-
+    if args.iter().any(|a| a == "--agent") {
         let read_only = args.iter().any(|a| a == "--read-only");
-        run_agent_mode(task, read_only);
+        let pos = args.iter().position(|a| a == "--agent").unwrap();
+        let maybe_task = args.get(pos + 1)
+            .filter(|t| !t.starts_with("--"));
+
+        if let Some(task) = maybe_task {
+            // Single-shot mode
+            run_agent_mode(task, read_only);
+        } else {
+            // Interactive session
+            run_agent_session(read_only);
+        }
         return;
     }
 
@@ -724,7 +723,85 @@ fn run_demo_mode() {
 }
 
 // ---------------------------------------------------------------------------
-// Agent mode
+// Agent interactive session
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "agent")]
+fn run_agent_session(read_only: bool) {
+    use cadmus::agent::{AgentConfig, run_agent};
+    use cadmus::line_editor::{LineEditor, ReadResult};
+
+    println!();
+    println!("{}", ui::banner("cadmus", VERSION, "agent session"));
+    println!();
+
+    let config = AgentConfig {
+        read_only,
+        ..AgentConfig::default()
+    };
+
+    if read_only {
+        println!("  {} read-only mode (write ops disabled)", ui::dim("mode:"));
+    }
+    println!("  {} {}  {} {}",
+        ui::dim("llm:"), config.llm_url,
+        ui::dim("model:"), config.model,
+    );
+    println!();
+    println!("  {} {}", ui::dim("type a task, or"), ui::dim_white("quit"));
+    println!();
+
+    let mut editor = LineEditor::new();
+    let prompt = format!("{}{}", ui::agent_prompt(), ui::reset());
+
+    loop {
+        let input = match editor.read_line(&prompt) {
+            ReadResult::Line(line) => line,
+            ReadResult::Interrupted => {
+                println!();
+                continue;
+            }
+            ReadResult::Eof => {
+                println!("{}", ui::dim("bye."));
+                break;
+            }
+        };
+
+        let input = input.trim();
+        if input.is_empty() {
+            continue;
+        }
+        if input == "quit" || input == "exit" || input == "q" {
+            println!("{}", ui::dim("bye."));
+            break;
+        }
+
+        let start = std::time::Instant::now();
+        let result = run_agent(input, &config);
+        let elapsed = start.elapsed();
+
+        println!();
+        if result.completed {
+            println!("  {}", ui::status_ok(&format!(
+                "Completed in {} tool call(s), {:.1}s",
+                result.tool_calls,
+                elapsed.as_secs_f64(),
+            )));
+        } else {
+            println!("  {}", ui::status_warn(&format!(
+                "Stopped after {} tool call(s), {:.1}s",
+                result.tool_calls,
+                elapsed.as_secs_f64(),
+            )));
+        }
+        println!();
+        println!("{}", result.summary);
+        println!();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agent single-shot mode
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "agent")]
