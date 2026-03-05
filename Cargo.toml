@@ -3,15 +3,11 @@ name = "cadmus"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = []
-agent = ["dep:ureq"]
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 thiserror = "2"
 rustyline = "15"
-ureq = { version = "2", features = ["json"], optional = true }
+ureq = { version = "2", features = ["json"] }
 

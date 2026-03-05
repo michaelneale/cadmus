@@ -336,11 +336,17 @@ fn parse_value(s: &str) -> (String, &str) {
 // NL-first shortcut: try deterministic pipeline before invoking LLM
 // ---------------------------------------------------------------------------
 
+/// Result of attempting the NL shortcut.
+#[derive(Clone)]
+enum NlShortcutResult {
+    /// NL pipeline succeeded — here's the final result.
+    Success(AgentResult),
+    /// NL pipeline built a plan but execution failed.
+    Failed { plan_summary: String, error: String },
+}
+
 /// Attempt to handle the task through the deterministic NL pipeline.
-/// Returns `Some(AgentResult)` if the NL pipeline produced a plan and
-/// executed it. Returns `None` if it couldn't parse the input (the LLM
-/// agent loop should take over).
-fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<AgentResult> {
+fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<NlShortcutResult> {
     use crate::nl;
     use crate::nl::dialogue::DialogueState;
 
@@ -387,7 +393,7 @@ fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<AgentResult> {
                 eprintln!("  {} {}", crate::ui::dim("→"), crate::ui::dim(&short(&preview, 200)));
                 eprintln!();
 
-                Some(AgentResult {
+                Some(NlShortcutResult::Success(AgentResult {
                     completed: true,
                     summary: result.output.clone(),
                     steps: vec![AgentStep {
@@ -398,16 +404,19 @@ fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<AgentResult> {
                         output: result.output,
                     }],
                     tool_calls: 1,
-                })
+                }))
             } else {
-                // NL built a plan but execution failed — fall through to LLM
+                // NL built a plan but execution failed — fall through to LLM with context
                 eprintln!(
                     "  {} NL plan failed, handing to LLM: {}",
                     crate::ui::dim("▸"),
                     short(&result.output, 80),
                 );
                 eprintln!();
-                None
+                Some(NlShortcutResult::Failed {
+                    plan_summary: summary,
+                    error: short(&result.output, 200),
+                })
             }
         }
         _ => None, // NL couldn't parse — fall through to LLM
@@ -423,8 +432,9 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
     // ── Phase 2: NL-first routing ──────────────────────────────────────
     // Try the deterministic NL pipeline first. If it builds a plan, execute
     // it directly — zero LLM cost, instant response.
-    if let Some(result) = try_nl_shortcut(task, config) {
-        return result;
+    let nl_context = try_nl_shortcut(task, config);
+    if let Some(NlShortcutResult::Success(result)) = &nl_context {
+        return result.clone();
     }
 
     let system_prompt = build_system_prompt(task, config);
@@ -433,6 +443,17 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
         Message::system(&system_prompt),
         Message::user(task),
     ];
+
+    // If NL tried and failed, tell the LLM what happened so it doesn't repeat
+    if let Some(NlShortcutResult::Failed { plan_summary, error }) = &nl_context {
+        messages.push(Message::assistant(&format!(
+            "I tried running a plan: {} — but it failed: {}",
+            plan_summary, error,
+        )));
+        messages.push(Message::user(
+            "That approach didn't work. Try a different way using the available tools.",
+        ));
+    }
 
     let mut steps = Vec::new();
     let mut tool_call_count = 0;

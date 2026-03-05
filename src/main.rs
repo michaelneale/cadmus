@@ -40,7 +40,6 @@ fn main() {
     // --agent mode: LLM agent loop with tool calling
     // With a task: single-shot mode (cadmus --agent "find bugs")
     // Without a task: interactive session (cadmus --agent)
-    #[cfg(feature = "agent")]
     if args.iter().any(|a| a == "--agent") {
         let read_only = args.iter().any(|a| a == "--read-only");
         let pos = args.iter().position(|a| a == "--agent").unwrap();
@@ -726,7 +725,6 @@ fn run_demo_mode() {
 // Agent interactive session
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "agent")]
 fn run_agent_session(read_only: bool) {
     use cadmus::agent::{AgentConfig, run_agent};
     use cadmus::line_editor::{LineEditor, ReadResult};
@@ -804,7 +802,6 @@ fn run_agent_session(read_only: bool) {
 // Agent single-shot mode
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "agent")]
 fn run_agent_mode(task: &str, read_only: bool) {
     use cadmus::agent::{AgentConfig, run_agent};
 
