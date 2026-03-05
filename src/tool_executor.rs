@@ -81,6 +81,11 @@ pub fn execute_tool(
         return execute_synthetic(op_name, args);
     }
 
+    // Handle plan: prefix — load and execute a named plan template
+    if let Some(plan_name) = op_name.strip_prefix("plan:") {
+        return execute_plan_template(plan_name, args);
+    }
+
     let reg = crate::fs_types::build_full_registry();
 
     // Validate op exists
@@ -239,6 +244,45 @@ pub fn execute_plan_def(plan: &PlanDef) -> ToolResult {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Plan template execution — load a .sexp plan file and execute with bindings
+// ---------------------------------------------------------------------------
+
+/// Execute a named plan template (from `data/plans/`) with the given arguments
+/// as bindings. The plan is loaded, parameters are bound, then it goes through
+/// the full Cadmus compile → codegen → execute pipeline.
+fn execute_plan_template(plan_name: &str, args: &HashMap<String, String>) -> ToolResult {
+    use crate::plan;
+
+    // Try loading from data/plans/<name>.sexp
+    let plan_path = std::path::PathBuf::from(format!("data/plans/{}.sexp", plan_name));
+    if !plan_path.exists() {
+        return ToolResult {
+            success: false,
+            output: format!("Plan template '{}' not found at {}", plan_name, plan_path.display()),
+            script: None,
+        };
+    }
+
+    let mut plan_def = match plan::load_plan(&plan_path) {
+        Ok(p) => p,
+        Err(e) => {
+            return ToolResult {
+                success: false,
+                output: format!("Failed to load plan '{}': {}", plan_name, e),
+                script: None,
+            };
+        }
+    };
+
+    // Bind arguments from the LLM to plan inputs
+    for (key, value) in args {
+        plan_def.bindings.insert(key.clone(), value.clone());
+    }
+
+    execute_plan_def(&plan_def)
 }
 
 // ---------------------------------------------------------------------------
@@ -584,5 +628,24 @@ mod tests {
 
         let no_tilde = expand_tilde("/tmp/test.txt");
         assert_eq!(no_tilde, "/tmp/test.txt");
+    }
+
+    #[test]
+    fn test_plan_prefix_not_found() {
+        let args = HashMap::new();
+        let result = execute_tool("plan:nonexistent_plan_xyz", &args, false);
+        assert!(!result.success);
+        assert!(result.output.contains("not found"));
+    }
+
+    #[test]
+    fn test_plan_prefix_loads_plan() {
+        // add_numbers.sexp exists and has a simple arithmetic plan
+        let args = HashMap::new();
+        let result = execute_tool("plan:add_numbers", &args, false);
+        // It should at least get past loading (may fail at execution
+        // due to missing racket or param issues, but shouldn't say "not found")
+        assert!(!result.output.contains("not found"),
+            "plan should be found: {}", result.output);
     }
 }

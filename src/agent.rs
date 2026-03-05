@@ -118,8 +118,8 @@ pub struct AgentResult {
 // System prompt
 // ---------------------------------------------------------------------------
 
-fn build_system_prompt(config: &AgentConfig) -> String {
-    let catalog = tools::tool_catalog(config.read_only);
+fn build_system_prompt(task: &str, config: &AgentConfig) -> String {
+    let catalog = tools::contextual_catalog(task, config.read_only);
     let mode = if config.read_only {
         "You are in READ-ONLY mode. You cannot modify files or run shell commands."
     } else {
@@ -427,7 +427,7 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
         return result;
     }
 
-    let system_prompt = build_system_prompt(config);
+    let system_prompt = build_system_prompt(task, config);
 
     let mut messages = vec![
         Message::system(&system_prompt),
@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn test_system_prompt_contains_tools() {
         let config = AgentConfig::default();
-        let prompt = build_system_prompt(&config);
+        let prompt = build_system_prompt("search for bugs", &config);
         assert!(prompt.contains("grep_code"), "should include grep_code");
         assert!(prompt.contains("write_file"), "should include write_file");
         assert!(prompt.contains("ACTION"), "should explain ACTION protocol");
@@ -628,7 +628,7 @@ mod tests {
             read_only: true,
             ..Default::default()
         };
-        let prompt = build_system_prompt(&config);
+        let prompt = build_system_prompt("search for bugs", &config);
         assert!(prompt.contains("READ-ONLY"));
         assert!(!prompt.contains("sed_replace"));
     }

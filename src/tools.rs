@@ -272,6 +272,205 @@ pub fn tool_catalog(read_only: bool) -> String {
     catalog
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: Context-aware tool selection
+// ---------------------------------------------------------------------------
+
+/// Domain keyword → ops pack mapping. Each domain has trigger keywords
+/// and the ops to inject when those keywords appear in the task.
+struct DomainHint {
+    keywords: &'static [&'static str],
+    pack: &'static str,
+}
+
+const DOMAIN_HINTS: &[DomainHint] = &[
+    DomainHint {
+        keywords: &["csv", "text", "string", "split", "join", "word", "count",
+                     "uppercase", "lowercase", "trim", "pad", "regex", "parse",
+                     "substring", "char", "reverse"],
+        pack: "text_processing",
+    },
+    DomainHint {
+        keywords: &["mean", "average", "median", "mode", "variance", "deviation",
+                     "percentile", "correlation", "standard", "stats", "statistical",
+                     "histogram", "z-score", "zscore", "quartile"],
+        pack: "statistics",
+    },
+    DomainHint {
+        keywords: &["trash", "recent", "modified", "spotlight", "launchctl",
+                     "desktop", "cleanup", "organize", "renamed", "dated"],
+        pack: "macos_tasks",
+    },
+    DomainHint {
+        keywords: &["http", "server", "route", "web", "port", "html", "endpoint"],
+        pack: "web",
+    },
+    DomainHint {
+        keywords: &["git", "commit", "push", "pull", "merge", "rebase", "branch",
+                     "clone", "stash", "cherry", "tag", "remote", "fetch", "log",
+                     "blame", "bisect"],
+        pack: "power_tools",
+    },
+];
+
+/// Generate a context-aware tool catalog. Starts with the base 19 tools,
+/// then adds domain-specific ops based on keywords found in the task.
+/// Also includes matching plan templates as composite tools.
+pub fn contextual_catalog(task: &str, read_only: bool) -> String {
+    let mut catalog = tool_catalog(read_only);
+
+    let task_lower = task.to_lowercase();
+    let task_words: Vec<&str> = task_lower.split_whitespace().collect();
+
+    // Collect extra ops from matched domains
+    let mut added_ops = std::collections::HashSet::new();
+
+    // Mark base ops as already present
+    for &name in AGENT_OPS {
+        added_ops.insert(name.to_string());
+    }
+
+    let mut extra_section = String::new();
+
+    for hint in DOMAIN_HINTS {
+        let matched = hint.keywords.iter().any(|kw| task_words.iter().any(|w| w.contains(kw)));
+        if !matched {
+            continue;
+        }
+
+        // Load all ops from this pack that have input_names
+        let pack_path = format!("data/packs/ops/{}.ops.yaml", hint.pack);
+        if let Ok(content) = std::fs::read_to_string(&pack_path) {
+            if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                if let Some(ops) = yaml["ops"].as_sequence() {
+                    for op in ops {
+                        let name = match op["name"].as_str() {
+                            Some(n) => n,
+                            None => continue,
+                        };
+                        if added_ops.contains(name) {
+                            continue;
+                        }
+                        let input_names: Vec<&str> = op["input_names"]
+                            .as_sequence()
+                            .map(|seq| seq.iter().filter_map(|v| v.as_str()).collect())
+                            .unwrap_or_default();
+                        if input_names.is_empty() {
+                            continue; // can't call without named params
+                        }
+                        if read_only && is_write_op(name) {
+                            continue;
+                        }
+                        let desc = op["description"]
+                            .as_str()
+                            .map(|d| clean_description(d))
+                            .unwrap_or_default();
+                        extra_section.push_str(&format!(
+                            "- {}({}): {}\n",
+                            name,
+                            input_names.join(", "),
+                            desc,
+                        ));
+                        added_ops.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Add matching plans as composite tools
+    let plan_section = contextual_plans(task, read_only);
+
+    if !extra_section.is_empty() {
+        catalog.push_str("\nDomain-specific tools:\n");
+        catalog.push_str(&extra_section);
+    }
+
+    if !plan_section.is_empty() {
+        catalog.push_str("\nComposite plans (multi-step, call as single tool):\n");
+        catalog.push_str(&plan_section);
+    }
+
+    catalog
+}
+
+/// Find plans whose names or descriptions match task keywords.
+/// Returns them formatted as callable tools with parameter descriptions.
+fn contextual_plans(task: &str, _read_only: bool) -> String {
+    let task_lower = task.to_lowercase();
+    let task_words: Vec<&str> = task_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() > 2)
+        .collect();
+
+    let mut plan_lines = String::new();
+    let mut count = 0;
+    const MAX_PLANS: usize = 10;
+
+    let plan_dir = std::path::Path::new("data/plans");
+    if !plan_dir.exists() {
+        return plan_lines;
+    }
+
+    // Scan top-level plans (not algorithm subdirs — those are too many)
+    if let Ok(entries) = std::fs::read_dir(plan_dir) {
+        for entry in entries.flatten() {
+            if count >= MAX_PLANS {
+                break;
+            }
+            let path = entry.path();
+            if path.extension().map(|e| e != "sexp").unwrap_or(true) {
+                continue;
+            }
+            let stem = path.file_stem().unwrap().to_string_lossy();
+            let stem_words: Vec<&str> = stem.split('_').collect();
+
+            // Check if any task word appears in the plan name
+            let name_match = task_words.iter().any(|tw| {
+                stem_words.iter().any(|sw| sw.contains(tw) || tw.contains(sw))
+            });
+            if !name_match {
+                continue;
+            }
+
+            // Read the plan to get description and params
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let desc = content.lines().next()
+                    .and_then(|l| l.strip_prefix(";;"))
+                    .map(|l| l.trim())
+                    .unwrap_or("");
+
+                // Extract params from define line
+                let params = content.lines()
+                    .find(|l| l.contains("(define"))
+                    .and_then(|l| {
+                        // (define (name (p1 : T1) (p2 : T2)) ...)
+                        let inner = l.trim();
+                        let names: Vec<&str> = inner
+                            .match_indices("(")
+                            .skip(2) // skip "(define" and "(name"
+                            .filter_map(|(i, _)| {
+                                let rest = &inner[i+1..];
+                                rest.split_whitespace().next()
+                            })
+                            .filter(|w| !w.starts_with(':') && *w != "bind" && *w != "define")
+                            .collect();
+                        if names.is_empty() { None } else { Some(names.join(", ")) }
+                    })
+                    .unwrap_or_default();
+
+                plan_lines.push_str(&format!(
+                    "- plan:{}({}): {}\n",
+                    stem, params, desc,
+                ));
+                count += 1;
+            }
+        }
+    }
+
+    plan_lines
+}
+
 /// Return the list of available agent op names (respecting read_only).
 pub fn available_ops(read_only: bool) -> Vec<&'static str> {
     if read_only {
@@ -423,5 +622,49 @@ mod tests {
                 desc
             );
         }
+    }
+
+    // -- Phase 3: contextual selection tests --
+
+    #[test]
+    fn test_contextual_catalog_includes_git_ops_for_git_task() {
+        let catalog = contextual_catalog("commit and push my changes", false);
+        assert!(catalog.contains("git"), "git task should inject git ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_includes_stats_for_stats_task() {
+        let catalog = contextual_catalog("compute the mean and variance of this data", false);
+        assert!(catalog.contains("mean_list") || catalog.contains("variance"),
+            "stats task should inject stats ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_includes_text_ops_for_csv_task() {
+        let catalog = contextual_catalog("parse this CSV file and count words", false);
+        assert!(catalog.contains("csv") || catalog.contains("word_count"),
+            "csv task should inject text ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_no_extras_for_generic_task() {
+        let catalog = contextual_catalog("find bugs in the code", false);
+        // Should not have domain-specific sections
+        assert!(!catalog.contains("Domain-specific"),
+            "generic task should not inject domain ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_includes_plans_for_matching_task() {
+        let catalog = contextual_catalog("commit and push to remote", false);
+        assert!(catalog.contains("plan:") || catalog.contains("commit"),
+            "matching task should surface relevant plans: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_always_has_base_tools() {
+        let catalog = contextual_catalog("compute statistics on data", false);
+        assert!(catalog.contains("grep_code"), "should always include base tools");
+        assert!(catalog.contains("write_file"), "should always include synthetic tools");
     }
 }
