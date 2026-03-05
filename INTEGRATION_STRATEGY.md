@@ -2,31 +2,23 @@
 
 ## What This Is
 
-An agent loop where a small local LLM gives instructions and Cadmus does the heavy lifting. The LLM says what it wants in plain text (`ACTION: write_file(path=..., content=...)`), Cadmus validates, compiles, executes, and returns the result. The LLM reads the result, decides the next step. Repeat until done.
+An agent loop where a small local LLM gives instructions and Cadmus does the heavy lifting. Three execution paths, chosen automatically:
 
-**Key insight**: small models (3-4B) are bad at structured tool-calling JSON but good at outputting single-line text instructions. The `ACTION:` protocol is trivially parseable and LLM-friendly. Cadmus handles everything else — type checking, Racket codegen, shell quoting, file safety.
-
-## Architecture
+1. **NL shortcut** — Cadmus's deterministic NL pipeline recognizes the task (e.g., "find PDFs in downloads") and executes instantly. Zero LLM cost, ~0.4s.
+2. **LLM agent loop** — for tasks the NL pipeline can't parse, the LLM reasons step by step using `ACTION:` protocol. 3-30s depending on steps.
+3. **Plan templates** — LLM can invoke pre-built multi-step plans (286 total) as single tools. One LLM turn → multiple typed ops.
 
 ```
-User: "write a pacman game and open it"
-  │
-  ▼
-┌──────────────┐  ACTION: write_file(path=..., content=...)  ┌──────────────┐
-│  Local LLM   │ ──────────────────────────────────────────▸ │   Cadmus     │
-│  (glm-4.7    │                                              │   Engine     │
-│   -flash)    │ ◂────────────────────────────────────────── │  (19 tools)  │
-│              │  RESULT: Wrote 2847 bytes to /tmp/pacman.html│              │
-└──────────────┘                                              └──────────────┘
-  │                                                             │
-  │  ACTION: shell(command="open /tmp/pacman.html")             │
-  │ ──────────────────────────────────────────────────────────▸ │
-  │                                                             │
-  │  RESULT: (opened in browser)                                │
-  │ ◂────────────────────────────────────────────────────────── │
-  │
-  ▼
-"Done. Created pacman game and opened in browser."
+User: "find comics in downloads"
+  → NL pipeline recognizes it → execute directly (0.4s, no LLM)
+
+User: "find where compile_plan is defined and show outline"
+  → NL pipeline fails → LLM agent loop
+  → step 1: find_definition → step 2: file_outline → done (8s)
+
+User: "compute the mean of [1,2,3,4,5]"
+  → NL pipeline fails → LLM agent loop
+  → LLM sees stats ops injected in context → uses mean_list
 ```
 
 ## Quick Start
@@ -35,17 +27,15 @@ User: "write a pacman game and open it"
 # Build
 cargo build --release --features agent
 
-# Start local model (Ollama)
-ollama serve
+# Ollama must be running (any OpenAI-compatible endpoint works)
+ollama serve &
 
 # Run
 cadmus --agent "find where compile_plan is defined" --read-only
 cadmus --agent "write hello world html to /tmp/hello.html and open it"
-cadmus --agent "search for TODO comments in this project" --read-only
-
-# List tools
-cadmus --tools
-cadmus --tools --read-only
+cadmus --agent "search for TODO in this project" --read-only
+cadmus --tools                    # list base tools
+cadmus --tools --read-only        # list read-only tools
 ```
 
 ### Environment
@@ -55,65 +45,84 @@ cadmus --tools --read-only
 | `CADMUS_LLM_URL` | `http://localhost:11434/v1/chat/completions` | Any OpenAI-compatible endpoint |
 | `CADMUS_MODEL` | `glm-4.7-flash:latest` | Model name |
 
-## How It Works
+## Architecture
 
-The LLM and Cadmus communicate via a simple text protocol:
+### Execution Path Selection
 
-**LLM outputs**: `ACTION: tool_name(param="value", param="value")`
-**Cadmus returns**: `RESULT: <execution output>`
+```
+cadmus --agent "task"
+  │
+  ├─ NL pipeline: process_input(task)
+  │   ├─ PlanCreated? → execute directly → done (0.4s)
+  │   └─ NeedsClarification? → fall through
+  │
+  └─ LLM agent loop (if NL failed)
+      ├─ Build system prompt with context-aware tools
+      │   ├─ Base 19 tools (always)
+      │   ├─ Domain ops (if keywords match: git, stats, text, macos, web)
+      │   └─ Plan templates (if plan names match task keywords)
+      ├─ LLM outputs: ACTION: tool_name(param="value")
+      ├─ Cadmus executes → annotates errors → returns RESULT
+      ├─ LLM sees result → next ACTION or final answer
+      └─ Repeat (max 15 steps)
+```
 
-When the LLM has no more actions, it gives a plain text final answer.
+### Tool Types
 
-### Two kinds of tools
+| Kind | Count | How they execute |
+|---|---|---|
+| **Registry ops** | 16 base + contextual | Full Cadmus pipeline: validate → PlanDef → compile → Racket → execute |
+| **Synthetic ops** | 3 (write_file, read_file, shell) | Direct Rust execution, bypass pipeline |
+| **Plan templates** | 286 (64 utility + 222 algorithm) | Load .sexp → bind params → compile → execute |
 
-1. **Registry ops** (16) — go through the full Cadmus typed pipeline: validate op exists → build PlanDef with correct types → compile → generate Racket → execute → capture output. These are `grep_code`, `find_definition`, `file_outline`, `build_project`, etc.
+### Context-Aware Tool Selection
 
-2. **Synthetic ops** (3) — handled directly for things the typed pipeline can't express:
-   - `write_file(path, content)` — write arbitrary text to a file (HTML, scripts, configs)
-   - `read_file(path)` — read a file's contents
-   - `shell(command)` — run any shell command
+The system prompt is customized per task. Keywords in the task trigger domain-specific ops:
 
-This split is deliberate. The LLM generates content (HTML for a game, a shell script, a config file). Cadmus writes it to disk and opens it. The typed pipeline handles structured operations (grep, find, build). Neither tries to do the other's job.
+| Keywords | Injected Domain | Extra Ops |
+|---|---|---|
+| git, commit, push, merge... | power_tools (git) | git_init, git_add, git_commit... |
+| mean, variance, percentile... | statistics | mean_list, median_list, variance_list... |
+| csv, string, split, trim... | text_processing | string_split, csv_parse_row, word_count... |
+| trash, spotlight, desktop... | macos_tasks | trash, find_recent, organize_by_extension... |
+| http, server, route, port... | web | http_server, add_route... |
 
-## Available Tools (19)
+Plans whose names match task keywords are also surfaced as callable `plan:name(params)` tools.
 
-| Tool | Params | Kind | Description |
-|---|---|---|---|
-| `grep_code` | dir, pattern | registry | Search source files for pattern |
-| `find_definition` | dir, name | registry | Find function/struct definition |
-| `find_usages` | dir, symbol | registry | Find all references to a symbol |
-| `find_imports` | file, module | registry | Find import statements |
-| `file_outline` | file | registry | Show functions with line numbers |
-| `list_source_files` | dir | registry | List source files |
-| `recently_changed` | dir | registry | Files changed in last 5 commits |
-| `sed_replace` | file, find, replace | registry | Find/replace in file |
-| `fix_import` | file, old_path, new_path | registry | Fix import path |
-| `add_after` | file, after_pattern, new_line | registry | Insert line after match |
-| `remove_lines` | file, pattern | registry | Delete matching lines |
-| `fix_assertion` | file, old_value, new_value | registry | Fix test assertions |
-| `build_project` | dir | registry | Auto-detect and build |
-| `test_project` | dir | registry | Auto-detect and test |
-| `lint_project` | dir | registry | Auto-detect and lint |
-| `open_file` | path | registry | Open with default app |
-| `write_file` | path, content | synthetic | Write text to file |
-| `read_file` | path | synthetic | Read file contents |
-| `shell` | command | synthetic | Run shell command |
+### Error Annotation
+
+When tools fail, Cadmus annotates errors with LLM-friendly hints:
+
+| Error Pattern | Hint |
+|---|---|
+| No such file or directory | Check path, use read_file to verify |
+| Missing required parameter | Check tool signature |
+| Compilation error | Type mismatch, try simpler approach |
+| Rust error[E...] | Read first error, use grep + sed to fix |
+| Permission denied | File may be read-only |
+| write op + read-only | Use read-only tools instead |
 
 ## Files
 
 | File | Lines | Purpose |
 |---|---|---|
-| `src/tools.rs` | 370 | Tool catalog generation (OpenAI JSON + text format) |
-| `src/tool_executor.rs` | 380 | Execution bridge (registry ops + synthetic ops) |
-| `src/agent.rs` | 490 | Agent loop + ACTION parser + LLM communication |
-| `tests/agent_tools_tests.rs` | 360 | 19 integration tests |
-| **Total** | **~1600** | |
+| `src/tools.rs` | ~500 | Tool catalog, domain hints, contextual selection |
+| `src/tool_executor.rs` | ~550 | Execution bridge, plan templates, error annotation |
+| `src/agent.rs` | ~590 | NL shortcut, LLM agent loop, ACTION parser |
+| `tests/agent_tools_tests.rs` | ~360 | 19 integration tests |
 
 ## Tests
 
 ```bash
-cargo test --features agent --lib           # 823 tests (includes 25 new)
+cargo test --features agent --lib           # 839 tests (includes agent + tools)
 cargo test --test agent_tools_tests          # 19 integration tests
+# Total: 858 new+existing tests, 0 regressions
 ```
 
-All 842 tests pass. Zero regressions in existing test suites.
+## Commits
+
+1. `checkpoint` — agent mode working with glm-4.7-flash
+2. `phase 1` — retire `--features llm` (remove llama-cpp-2 dep, 783 lines deleted)
+3. `phase 2` — NL-first routing (try deterministic pipeline before LLM)
+4. `phase 3+4` — context-aware tools + plans as composite tools
+5. `phase 5` — error annotation (translate cryptic errors for LLM)
