@@ -176,6 +176,72 @@ pub fn execute_tool(
 }
 
 // ---------------------------------------------------------------------------
+// Execute a pre-built PlanDef (from NL pipeline or plan files)
+// ---------------------------------------------------------------------------
+
+/// Execute a compiled PlanDef directly and return the result.
+///
+/// Used when the NL pipeline has already built a plan (e.g., from Earley
+/// parsing or plan file lookup). Bypasses op name lookup since we already
+/// have the full plan.
+pub fn execute_plan_def(plan: &PlanDef) -> ToolResult {
+    let frame = DefaultFrame::from_plan(plan);
+
+    let script = match frame.codegen(plan) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            return ToolResult {
+                success: false,
+                output: format!("Compilation error: {}", e),
+                script: None,
+            };
+        }
+    };
+
+    match frame.invoke(plan) {
+        Ok(exec) => {
+            let raw_output = if exec.success {
+                if exec.stdout.is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    exec.stdout
+                }
+            } else {
+                let code = exec.exit_code.unwrap_or(1);
+                if exec.stderr.is_empty() && exec.stdout.is_empty() {
+                    format!("Command failed with exit code {}", code)
+                } else {
+                    format!(
+                        "Exit code {}:\n{}\n{}",
+                        code,
+                        exec.stderr.trim(),
+                        exec.stdout.trim()
+                    )
+                }
+            };
+            ToolResult {
+                success: exec.success,
+                output: truncate(&raw_output, MAX_OUTPUT_CHARS),
+                script,
+            }
+        }
+        Err(e) => {
+            let msg = match &e {
+                InvokeError::ExecError(s) if s.contains("run racket") => {
+                    "Racket is not installed. Install with: brew install racket".to_string()
+                }
+                _ => format!("Execution error: {}", e),
+            };
+            ToolResult {
+                success: false,
+                output: msg,
+                script,
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Synthetic tool execution (bypass Cadmus pipeline)
 // ---------------------------------------------------------------------------
 

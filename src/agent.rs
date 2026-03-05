@@ -333,11 +333,100 @@ fn parse_value(s: &str) -> (String, &str) {
 }
 
 // ---------------------------------------------------------------------------
+// NL-first shortcut: try deterministic pipeline before invoking LLM
+// ---------------------------------------------------------------------------
+
+/// Attempt to handle the task through the deterministic NL pipeline.
+/// Returns `Some(AgentResult)` if the NL pipeline produced a plan and
+/// executed it. Returns `None` if it couldn't parse the input (the LLM
+/// agent loop should take over).
+fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<AgentResult> {
+    use crate::nl;
+    use crate::nl::dialogue::DialogueState;
+
+    let mut state = DialogueState::new();
+    let response = nl::process_input(task, &mut state);
+
+    match response {
+        nl::NlResponse::PlanCreated { plan_sexpr, summary, .. } => {
+            // NL pipeline built a plan — execute it directly
+            let plan = match state.current_plan.take() {
+                Some(p) => p,
+                None => return None,
+            };
+
+            // Check read-only: does the plan contain write ops?
+            if config.read_only {
+                for step in &plan.steps {
+                    let op = step.op.as_str();
+                    if crate::tools::is_write_op(op) {
+                        eprintln!(
+                            "  {} NL plan contains write op '{}' but read-only mode is active",
+                            crate::ui::dim("✗"),
+                            op,
+                        );
+                        return None; // fall through to LLM which will also be blocked
+                    }
+                }
+            }
+
+            eprintln!();
+            eprintln!(
+                "  {} NL shortcut — {}",
+                crate::ui::status_ok("▸"),
+                summary,
+            );
+            eprintln!();
+            eprintln!("  {}", crate::ui::dim(&plan_sexpr.lines().take(5).collect::<Vec<_>>().join("\n  ")));
+            eprintln!();
+
+            let result = tool_executor::execute_plan_def(&plan);
+
+            let preview = result.output.lines().take(5).collect::<Vec<_>>().join("\n");
+            if result.success {
+                eprintln!("  {} {}", crate::ui::dim("→"), crate::ui::dim(&short(&preview, 200)));
+                eprintln!();
+
+                Some(AgentResult {
+                    completed: true,
+                    summary: result.output.clone(),
+                    steps: vec![AgentStep {
+                        step: 1,
+                        tool_name: Some(format!("nl_plan: {}", summary)),
+                        tool_args: None,
+                        success: true,
+                        output: result.output,
+                    }],
+                    tool_calls: 1,
+                })
+            } else {
+                // NL built a plan but execution failed — fall through to LLM
+                eprintln!(
+                    "  {} NL plan failed, handing to LLM: {}",
+                    crate::ui::dim("▸"),
+                    short(&result.output, 80),
+                );
+                eprintln!();
+                None
+            }
+        }
+        _ => None, // NL couldn't parse — fall through to LLM
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Agent loop
 // ---------------------------------------------------------------------------
 
 /// Run the agent loop to completion.
 pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
+    // ── Phase 2: NL-first routing ──────────────────────────────────────
+    // Try the deterministic NL pipeline first. If it builds a plan, execute
+    // it directly — zero LLM cost, instant response.
+    if let Some(result) = try_nl_shortcut(task, config) {
+        return result;
+    }
+
     let system_prompt = build_system_prompt(config);
 
     let mut messages = vec![
@@ -662,3 +751,32 @@ mod tests {
         assert_eq!(result.tool_calls, 0);
     }
 }
+
+    #[test]
+    fn test_nl_shortcut_recognizes_known_command() {
+        // "find comics in downloads" is a well-tested NL path with bindings
+        use crate::nl;
+        use crate::nl::dialogue::DialogueState;
+        let mut state = DialogueState::new();
+        let response = nl::process_input("find comics in downloads", &mut state);
+        assert!(matches!(response, nl::NlResponse::PlanCreated { .. }));
+        let plan = state.current_plan.as_ref().unwrap();
+        assert!(!plan.bindings.is_empty(), "NL should bind the path");
+    }
+
+    #[test]
+    fn test_nl_shortcut_returns_none_for_unknown() {
+        // "write a pacman game" is not parseable by NL — should return None
+        let config = AgentConfig::default();
+        let result = try_nl_shortcut("write a pacman game in HTML and open it", &config);
+        assert!(result.is_none(), "unknown tasks should fall through to LLM");
+    }
+
+    #[test]
+    fn test_nl_shortcut_recognizes_algorithm() {
+        use crate::nl;
+        use crate::nl::dialogue::DialogueState;
+        let mut state = DialogueState::new();
+        let response = nl::process_input("quicksort", &mut state);
+        assert!(matches!(response, nl::NlResponse::PlanCreated { .. }));
+    }
