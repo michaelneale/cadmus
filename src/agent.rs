@@ -180,25 +180,32 @@ fn call_llm(config: &AgentConfig, messages: &[Message]) -> Result<String, String
         .as_str()
         .unwrap_or("")
         .to_string();
+    let reasoning = message["reasoning"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
 
-    // If content is empty but reasoning has the answer, use reasoning
-    if content.is_empty() {
-        if let Some(reasoning) = message["reasoning"].as_str() {
-            // Check if reasoning contains an ACTION line
-            for line in reasoning.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("ACTION:") {
-                    return Ok(trimmed.to_string());
-                }
-            }
-            // No action in reasoning — might be the final answer
-            if !reasoning.is_empty() {
-                return Ok(reasoning.to_string());
-            }
+    // Check content for ACTION first (most common case)
+    if content.lines().any(|l| l.trim().starts_with("ACTION:")) {
+        return Ok(content);
+    }
+
+    // Check reasoning for ACTION (GLM puts actions there sometimes)
+    for line in reasoning.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("ACTION:") {
+            return Ok(trimmed.to_string());
         }
     }
 
-    Ok(content)
+    // No ACTION anywhere — return content if non-empty, else reasoning
+    if !content.is_empty() {
+        Ok(content)
+    } else if !reasoning.is_empty() {
+        Ok(reasoning.to_string())
+    } else {
+        Ok(String::new())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -547,14 +554,15 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
                 messages.push(Message::user(&format!("RESULT: {}", result.output)));
             }
             None => {
-                // No ACTION — this is the final answer
+                // No ACTION line found
                 let answer = response.trim().to_string();
-                if answer.is_empty() {
-                    // Empty response — nudge
-                    messages.push(Message::assistant(""));
+                if answer.is_empty() || (tool_call_count == 0 && step_num <= 2) {
+                    // Empty response, OR first turn with no action taken yet —
+                    // the LLM is being polite instead of acting. Nudge it.
+                    messages.push(Message::assistant(&response));
                     messages.push(Message::user(
-                        "Continue with the task. Use ACTION: tool_name(...) to run a tool, \
-                         or give your final answer as plain text.",
+                        "Don't explain — just do it. Use ACTION: tool_name(param=\"value\") to run a tool. \
+                         Start with the first step now.",
                     ));
                     continue;
                 }
