@@ -398,9 +398,16 @@ pub fn contextual_catalog(task: &str, read_only: bool) -> String {
 /// Returns them formatted as callable tools with parameter descriptions.
 fn contextual_plans(task: &str, _read_only: bool) -> String {
     let task_lower = task.to_lowercase();
+    const STOP_WORDS: &[&str] = &[
+        "the", "and", "for", "but", "not", "you", "all", "can", "her",
+        "was", "one", "our", "out", "are", "has", "his", "how", "its",
+        "may", "new", "now", "old", "see", "way", "who", "did", "get",
+        "let", "say", "she", "too", "use", "with", "from", "this", "that",
+        "then", "them", "they", "into", "show", "file", "files", "please",
+    ];
     let task_words: Vec<&str> = task_lower
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.len() > 2)
+        .filter(|w| w.len() > 2 && !STOP_WORDS.contains(w))
         .collect();
 
     let mut plan_lines = String::new();
