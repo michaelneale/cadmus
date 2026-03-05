@@ -385,7 +385,7 @@ fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<NlShortcutResult>
 
             eprintln!();
             eprintln!(
-                "  {} NL shortcut — {}",
+                "  {} [NL] {}",
                 crate::ui::status_ok("▸"),
                 summary,
             );
@@ -415,7 +415,7 @@ fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<NlShortcutResult>
             } else {
                 // NL built a plan but execution failed — fall through to LLM with context
                 eprintln!(
-                    "  {} NL plan failed, handing to LLM: {}",
+                    "  {} [NL] failed, using LLM: {}",
                     crate::ui::dim("▸"),
                     short(&result.output, 80),
                 );
@@ -469,7 +469,7 @@ pub fn run_agent(task: &str, config: &AgentConfig) -> AgentResult {
 
     eprintln!();
     eprintln!(
-        "  {} agent starting — max {} steps",
+        "  {} [LLM] max {} steps",
         crate::ui::status_active("▸"),
         config.max_steps,
     );
