@@ -378,7 +378,7 @@ pub fn compile_ir(ir: &IntentIR) -> CompileResult {
 
     // Bind path literals to inputs (the calling frame)
     let mut bindings = HashMap::new();
-    if target_path != "." && !used_program_first {
+    if !used_program_first {
         let input_name = inputs.first()
             .map(|i| i.name.clone())
             .unwrap_or_else(|| "path".to_string());
@@ -866,10 +866,12 @@ mod tests {
     }
 
     #[test]
-    fn test_bindings_empty_when_no_path() {
+    fn test_bindings_default_path_when_no_path() {
         let plan = expect_plan("find files");
-        assert!(plan.bindings.is_empty(),
-            "bindings should be empty when no path literal: {:?}", plan.bindings);
+        // When no path is given, "." should be bound as default
+        let input_name = &plan.inputs[0].name;
+        assert_eq!(plan.bindings.get(input_name).map(|s| s.as_str()), Some("."),
+            "should bind default path '.': {:?}", plan.bindings);
     }
 
     #[test]
