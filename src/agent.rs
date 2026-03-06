@@ -118,6 +118,24 @@ pub struct AgentResult {
 // System prompt
 // ---------------------------------------------------------------------------
 
+/// Detect the OS and return a short description for the system prompt.
+fn detect_os() -> String {
+    let os = std::env::consts::OS; // "macos", "linux", "windows"
+    let arch = std::env::consts::ARCH; // "aarch64", "x86_64"
+    match os {
+        "macos" => format!(
+            "macOS ({arch}). Use macOS commands: open, pmset, networksetup, \
+             system_profiler, osascript, defaults, sw_vers. \
+             Do NOT use Linux commands like iwconfig, nmcli, upower, ip, /proc/*."
+        ),
+        "linux" => format!(
+            "Linux ({arch}). Use Linux commands: xdg-open, upower, nmcli, \
+             iwconfig, ip, systemctl, /proc/*, /sys/*."
+        ),
+        _ => format!("{os} ({arch})."),
+    }
+}
+
 fn build_system_prompt(task: &str, config: &AgentConfig) -> String {
     let catalog = tools::contextual_catalog(task, config.read_only);
     let mode = if config.read_only {
@@ -126,10 +144,14 @@ fn build_system_prompt(task: &str, config: &AgentConfig) -> String {
         "You can search, inspect, modify code, write files, and run commands."
     };
 
+    let os_info = detect_os();
+
     format!(
         r#"You complete tasks step by step using tools.
 
 {mode}
+
+System: {os_info}
 
 To use a tool, output a line starting with ACTION:
 ACTION: tool_name(param="value", param="value")
@@ -145,7 +167,8 @@ Rules:
 4. When done, give a plain text answer (no ACTION line).
 5. If a tool fails, try a different approach.
 6. Use dir="." for the current project unless told otherwise.
-7. For write_file, put the full content in the content parameter."#
+7. For write_file, put the full content in the content parameter.
+8. Use platform-native commands (e.g. macOS: open, pmset, networksetup, system_profiler; Linux: xdg-open, upower, nmcli)."#
     )
 }
 
@@ -352,6 +375,47 @@ enum NlShortcutResult {
     Failed { plan_summary: String, error: String },
 }
 
+/// Words that indicate the task is about system/desktop, not files.
+/// If the NL plan is a generic file op (list_dir, walk_tree) but the task
+/// contains these words, the NL match is likely a false positive.
+const NON_FILE_KEYWORDS: &[&str] = &[
+    "process", "processes", "cpu", "memory", "ram", "battery", "wifi",
+    "network", "ssid", "bluetooth", "disk", "usage", "app", "application",
+    "open", "launch", "quit", "kill", "screenshot", "screen", "display",
+    "volume", "brightness", "hostname", "ip", "address", "port", "pid",
+    "uptime", "temperature", "fan", "power", "sleep", "shutdown", "restart",
+    "reboot", "login", "user", "whoami", "calendar", "date", "time",
+    "clipboard", "paste", "notification",
+];
+
+/// Generic file ops that are prone to false-positive NL matches.
+const GENERIC_FILE_OPS: &[&str] = &[
+    "list_dir", "walk_tree", "find_matching", "read_file",
+];
+
+/// Check if an NL plan is likely a false positive for the given task.
+/// Returns true if the plan should be rejected (task is non-file but plan is file-only).
+fn nl_plan_looks_wrong(task: &str, plan: &crate::plan::PlanDef) -> bool {
+    let task_lower = task.to_lowercase();
+    let task_words: Vec<&str> = task_lower.split_whitespace().collect();
+
+    // Does the task mention non-file concepts?
+    let has_non_file = task_words.iter().any(|w| {
+        NON_FILE_KEYWORDS.iter().any(|kw| w.trim_matches(|c: char| !c.is_alphanumeric()) == *kw)
+    });
+
+    if !has_non_file {
+        return false; // Task seems file-related, NL match is fine
+    }
+
+    // Is the plan only generic file ops?
+    let all_generic = plan.steps.iter().all(|s| {
+        GENERIC_FILE_OPS.contains(&s.op.as_str())
+    });
+
+    all_generic // Reject if task is non-file but plan is only generic file ops
+}
+
 /// Attempt to handle the task through the deterministic NL pipeline.
 fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<NlShortcutResult> {
     use crate::nl;
@@ -367,6 +431,17 @@ fn try_nl_shortcut(task: &str, config: &AgentConfig) -> Option<NlShortcutResult>
                 Some(p) => p,
                 None => return None,
             };
+
+            // Reject NL false positives: task is about system/desktop but
+            // plan is generic file ops
+            if nl_plan_looks_wrong(task, &plan) {
+                eprintln!(
+                    "  {} [NL] skipped — task doesn't look file-related ({})",
+                    crate::ui::dim("▸"),
+                    summary,
+                );
+                return None; // fall through to LLM
+            }
 
             // Check read-only: does the plan contain write ops?
             if config.read_only {
