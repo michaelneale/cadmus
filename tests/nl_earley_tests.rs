@@ -859,13 +859,13 @@ fn test_binding_zip_up_downloads() {
 
 #[test]
 fn test_binding_no_path_has_no_binding_in_yaml() {
-    // "find files" with no location should not show a path binding
+    // "find files" with no location should default path to "."
+    // (agent mode has no CLI args, so unbound inputs crash)
     let yaml = expect_plan("find files");
-    // Sexpr format: should have (path : ...) in define but no (bind path ...) form
     assert!(yaml.contains("path"),
         "should have path input:\n{}", yaml);
-    assert!(!yaml.contains("(bind "),
-        "should NOT have a binding when no path given:\n{}", yaml);
+    assert!(yaml.contains("(bind path \".\")"),
+        "should bind path to \".\" when no path given:\n{}", yaml);
 }
 
 #[test]
