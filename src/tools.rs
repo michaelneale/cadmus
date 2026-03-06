@@ -298,7 +298,9 @@ const DOMAIN_HINTS: &[DomainHint] = &[
     },
     DomainHint {
         keywords: &["trash", "recent", "modified", "spotlight", "launchctl",
-                     "desktop", "cleanup", "organize", "renamed", "dated"],
+                     "desktop", "cleanup", "organize", "renamed", "dated",
+                     "open", "app", "finder", "backup", "duplicate", "git",
+                     "commit", "push", "hidden"],
         pack: "macos_tasks",
     },
     DomainHint {
