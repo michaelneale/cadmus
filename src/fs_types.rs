@@ -56,6 +56,7 @@ const ALGORITHM_OPS_YAML: &str = include_str!("../data/packs/ops/algorithm.ops.y
 const TEXT_PROCESSING_OPS_YAML: &str = include_str!("../data/packs/ops/text_processing.ops.yaml");
 const STATISTICS_OPS_YAML: &str = include_str!("../data/packs/ops/statistics.ops.yaml");
 const MACOS_TASKS_OPS_YAML: &str = include_str!("../data/packs/ops/macos_tasks.ops.yaml");
+const CODE_EDITING_OPS_YAML: &str = include_str!("../data/packs/ops/code_editing.ops.yaml");
 const WEB_OPS_YAML: &str = include_str!("../data/packs/ops/web.ops.yaml");
 
 pub fn build_full_registry() -> OperationRegistry {
@@ -101,12 +102,20 @@ pub fn build_full_registry() -> OperationRegistry {
         &mut reg,
     );
 
+    // Merge code editing ops (search, navigate, edit, build)
+    let _ = load_ops_pack_str_into(
+        &std::fs::read_to_string("data/packs/ops/code_editing.ops.yaml")
+            .unwrap_or_else(|_| CODE_EDITING_OPS_YAML.to_string()),
+        &mut reg,
+    );
+
     // Merge web ops (HTTP server operations with racket_body)
     let _ = load_ops_pack_str_into(
         &std::fs::read_to_string("data/packs/ops/web.ops.yaml")
             .unwrap_or_else(|_| WEB_OPS_YAML.to_string()),
         &mut reg,
     );
+
 
     // Run inference to discover and promote ops from the fact pack
     // (e.g., subtract, multiply, divide are discovered from racket.facts.yaml)

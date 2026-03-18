@@ -78,11 +78,18 @@ pub fn build_racket_registry() -> OperationRegistry {
         &mut reg,
     );
 
+    // Merge code editing ops (search, navigate, edit, build)
+    let _ = crate::registry::load_ops_pack_str_into(
+        include_str!("../data/packs/ops/code_editing.ops.yaml"),
+        &mut reg,
+    );
+
     // Merge web ops (HTTP server operations with racket_body)
     let _ = crate::registry::load_ops_pack_str_into(
         include_str!("../data/packs/ops/web.ops.yaml"),
         &mut reg,
     );
+
 
     let racket_facts_yaml = include_str!("../data/packs/facts/racket.facts.yaml");
     if let Ok(facts) = crate::racket_strategy::load_racket_facts_from_str(racket_facts_yaml) {

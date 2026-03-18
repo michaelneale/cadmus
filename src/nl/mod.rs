@@ -23,6 +23,7 @@ pub mod intent_ir;
 pub mod intent_compiler;
 pub mod phrase;
 
+
 use dialogue::{DialogueState, DialogueError, FocusEntry};
 use dialogue::EditAction;
 use dialogue::ExtractedSlots;
@@ -429,14 +430,18 @@ fn try_earley_create(
                 },
             }
         }
-        intent_compiler::CompileResult::Error(msg) => NlResponse::NeedsClarification {
-            needs: vec![msg],
-        },
-        intent_compiler::CompileResult::NoIntent => NlResponse::NeedsClarification {
-            needs: vec![
-                "I couldn't parse that as a command. Try something like 'compute fibonacci' or 'find PDFs in ~/Documents'.".to_string(),
-            ],
-        },
+        intent_compiler::CompileResult::Error(msg) => {
+            NlResponse::NeedsClarification {
+                needs: vec![msg],
+            }
+        }
+        intent_compiler::CompileResult::NoIntent => {
+            NlResponse::NeedsClarification {
+                needs: vec![
+                    "I couldn't parse that as a command. Try something like 'compute fibonacci' or 'find PDFs in ~/Documents'.".to_string(),
+                ],
+            }
+        }
         intent_compiler::CompileResult::Approve => {
             handle_approve(state)
         }
@@ -792,7 +797,9 @@ fn finish_plan_creation(
     }
 }
 
-
+// ---------------------------------------------------------------------------
+// LLM fallback — try local model when deterministic parsing fails
+// ---------------------------------------------------------------------------
 
 /// Generate a casual acknowledgment phrase, varying by turn count.
 fn casual_ack(turn: usize) -> &'static str {

@@ -3198,6 +3198,20 @@ algorithm_expansion:
   preferences: 60
   visual: 60
   uncommit: 40
+  # code editing domain
+  grep: 100
+  definition: 80
+  usages: 80
+  symbol: 80
+  outline: 80
+  import: 80
+  assertion: 80
+  wiring: 60
+  codebase: 80
+  overview: 80
+  lint: 80
+  linter: 80
+  # web domain
   web: 80
   webserver: 80
   server: 80

@@ -421,6 +421,15 @@ pub fn prompt() -> String {
     }
 }
 
+/// Agent session prompt (distinct color from NL chat prompt).
+pub fn agent_prompt() -> String {
+    if color_enabled() {
+        format!("{}{}{} ", BOLD, FG_BLUE, icon::PROMPT)
+    } else {
+        format!("{} ", icon::PROMPT)
+    }
+}
+
 /// Reset code (for use after prompt where we don't want to reset inline).
 pub fn reset() -> &'static str {
     if color_enabled() { RESET } else { "" }

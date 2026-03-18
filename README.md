@@ -1,6 +1,6 @@
 # Cadmus
 
-A pure-Rust reasoning engine that plans typed operations using unification, algebraic properties, and strategy-pattern domain specialization. No LLM — all derivation is mechanical. Cadmus takes natural language commands or YAML plan definitions and compiles them into executable Racket programs through a type-directed pipeline.
+A pure-Rust reasoning engine that plans typed operations using unification, algebraic properties, and strategy-pattern domain specialization. Cadmus takes natural language commands or s-expression plan definitions and compiles them into executable Racket programs through a type-directed pipeline. Optionally, a local LLM (Qwen 3B, 2GB) acts as a fuzzy NL frontend for free-form input.
 
 ## Executive Summary
 
@@ -27,7 +27,8 @@ The engine is **data-driven**: operations, type signatures, domain knowledge, an
 ### Build
 
 ```bash
-cargo build --release
+cargo build --release                  # standard build
+cargo build --release --features llm   # with local LLM frontend (requires ~/.models/Qwen2.5-3B-Instruct-Q4_K_M.gguf)
 ```
 
 ### Install (optional)
@@ -45,10 +46,15 @@ cargo run
 cadmus
 ```
 
-**Plan mode** — compile and run a YAML plan:
+**With local LLM** — understands free-form input like "yo search my code for async":
 ```bash
-cargo run -- --plan data/plans/find_pdfs.yaml           # compile + execute
-cargo run -- --plan data/plans/find_pdfs.yaml --dry-run  # compile only, show script
+cargo run --features llm
+```
+
+**Plan mode** — compile and run an s-expression plan:
+```bash
+cargo run -- --plan data/plans/grep_code.sexp            # compile + execute
+cargo run -- --plan data/plans/grep_code.sexp --dry-run   # compile only, show script
 ```
 
 **Demo mode** — run all three strategy demos:
@@ -69,6 +75,7 @@ cargo test
 |---------|---------|
 | `cargo build` | Build debug |
 | `cargo build --release` | Build release |
+| `cargo build --features llm` | Build with local LLM frontend |
 | `cargo test` | Run all tests (~1452) |
 | `cargo test -- --test-threads=1` | Run tests sequentially (for debugging) |
 | `cargo test <name>` | Run specific test |
@@ -169,6 +176,81 @@ The Racket strategy (`src/racket_strategy.rs`) implements a multi-phase inferenc
 4. **Phase 3 — Op-symmetric replay**: Catch ops whose partners were discovered in Phase 2
 5. **Phase 4 — Shell submodes**: Discover CLI tool submodes from macOS CLI fact pack
 
+## Code Editing Ops
+
+16 operations distilled from ~200 real coding agent sessions (3,015 edits across 41 projects). These cover the core loop agents actually perform: search → navigate → edit → verify.
+
+| Category | Op | What It Does |
+|----------|-----|-------------|
+| Search | `grep_code` | Recursive grep across source files |
+| Search | `find_definition` | Find where a fn/struct/class is defined |
+| Search | `find_usages` | Find all references to a symbol |
+| Search | `find_imports` | Find import/use statements for a module |
+| Navigate | `file_outline` | Show fn/type definitions with line numbers |
+| Navigate | `list_source_files` | List source files, excluding build dirs |
+| Navigate | `recently_changed` | Files changed in last 5 git commits |
+| Edit | `sed_replace` | Find/replace pattern in a file |
+| Edit | `fix_import` | Replace an import path |
+| Edit | `add_after` | Insert a line after a pattern match |
+| Edit | `remove_lines` | Delete lines matching a pattern |
+| Edit | `fix_assertion` | Update test expected values |
+| Build | `build_project` | Auto-detect build system and build |
+| Build | `test_project` | Auto-detect and run tests |
+| Build | `lint_project` | Auto-detect and run linter |
+
+Build/test/lint auto-detect the project type: `Cargo.toml` → cargo, `package.json` → npm, `Makefile` → make, `go.mod` → go.
+
+Try them:
+```bash
+cargo run -- --plan data/plans/grep_code.sexp           # search for TODO
+cargo run -- --plan data/plans/find_definition.sexp     # find where "main" is defined
+cargo run -- --plan data/plans/build_project.sexp       # auto-detect and build
+cargo run -- --plan data/plans/file_outline.sexp        # show structure of a file
+```
+
+Defined in `data/packs/ops/code_editing.ops.yaml`. See [AGENT_DISTILLED.md](AGENT_DISTILLED.md) for the full methodology.
+
+## Local LLM Frontend
+
+Optional feature that adds a local Qwen2.5-3B model as a fuzzy NL frontend. When the deterministic Earley parser can't understand input, the LLM takes over.
+
+```bash
+cargo run --features llm
+```
+
+**How it works:**
+
+```
+You: "yo can you look through my codebase for anything using async"
+
+[llm] loading model... ready.
+[llm] → grep_code  dir=.  pattern=async
+
+✓ Plan created
+(define (grep_code (dir : String) (pattern : String))
+  (bind dir ".")
+  (bind pattern "async")
+  (grep_code))
+```
+
+The LLM does NOT generate plans or code. It does two things:
+- **Fuzzy op matching**: "look through my codebase" → `grep_code`
+- **Slot extraction**: "anything using async" → `pattern: async`
+
+Rust then mechanically builds the typed plan, validates it against the registry, and hands it to the existing pipeline for type-checking and Racket codegen.
+
+**More examples:**
+```
+"where is compile_plan defined in src"     → find_definition(dir=src, name=compile_plan)
+"replace old_api with new_api in main.rs"  → sed_replace(file=main.rs, find=old_api, replace=new_api)
+"compile my project and check for errors"  → build_project + test_project (multi-step!)
+"what functions are in plan.rs"            → file_outline(file=plan.rs)
+```
+
+**Requirements:** A GGUF model at `~/.models/Qwen2.5-3B-Instruct-Q4_K_M.gguf` (2GB). Override with `CADMUS_LLM_MODEL=/path/to/model.gguf`.
+
+**Architecture:** `src/nl/llm.rs`, feature-gated behind `--features llm`. Uses `llama-cpp-2` with Metal acceleration. Model loaded once via OnceLock (~2s), subsequent queries are instant. Zero network calls.
+
 ## Codebase Tour
 
 ### Directory Structure
@@ -214,6 +296,7 @@ src/
     grammar.rs         Earley grammar builder (360 lines)
     vocab.rs           Vocabulary YAML loader (340 lines)
     phrase.rs          Multi-word phrase tokenizer (314 lines)
+    llm.rs             Local LLM fuzzy frontend [feature: llm] (320 lines)
 
 data/
   filetypes.yaml       File type dictionary (197 entries, 14 categories)
@@ -224,6 +307,7 @@ data/
   packs/
     ops/               Operation type signatures (YAML)
       fs.ops.yaml        49 filesystem ops
+      code_editing.ops.yaml  16 code search/edit/build ops
       power_tools.ops.yaml  64 dev tool ops
       racket.ops.yaml    47 Racket language ops
       comparison.ops.yaml  6 comparison reasoning ops
@@ -270,6 +354,8 @@ Cadmus is configured entirely through YAML data files. No environment variables 
 | `data/nl/nl_lexicon.yaml` | Earley parser lexicon | [Configuration Guide](docs/configuration.md#nl-lexicon) |
 | `data/plans/*.yaml` | Plan definitions | [Plan DSL Reference](docs/plan-dsl.md) |
 
+| `CADMUS_LLM_MODEL` env var | LLM model path | Default: `~/.models/Qwen2.5-3B-Instruct-Q4_K_M.gguf` |
+
 All YAML files are loaded at runtime. The engine embeds fallback copies via `include_str!()` so it works without the data directory present, but prefers on-disk files when available.
 
 ## Testing Overview
@@ -312,6 +398,7 @@ cargo test --test stress_pipeline  # Stress tests (92 tests)
 | [Plan DSL Reference](docs/plan-dsl.md) | Plan YAML syntax, compilation pipeline, type inference, and execution |
 | [NL Pipeline](docs/nl-pipeline.md) | Natural language processing: Earley parser, intent recognition, dialogue state |
 | [Playbook](PLAYBOOK.md) | Step-by-step recipes for adding ops, fact packs, plans, and file types |
+| [Agent Distilled](AGENT_DISTILLED.md) | Code editing ops distilled from agent sessions: methodology, data, LLM frontend |
 | [Bugs](BUGS.md) | Known NL layer bugs (16 tracked, 14 fixed) |
 | [Semantics](SEMANTICS.md) | Semantic correctness analysis across all strategies |
 | [Subsumption](SUBSUMPTION.md) | Shell-callable Racket forms migration plan |
@@ -326,3 +413,4 @@ cargo test --test stress_pipeline  # Stress tests (92 tests)
 - **Single-developer project** — no LICENSE, CONTRIBUTING, or code review process
 - **NL layer limitations** — see `BUGS.md` for 16 tracked issues (14 fixed, 1 deferred, 1 by-design)
 - **Coding strategy output loss** — `execute_plan()` in `src/strategy.rs` only returns root node result; intermediate CodeSmell/Refactoring/TypeSignature lost in `assemble()` (documented in `SEMANTICS.md`)
+- **LLM Metal cleanup assert** — When using `--features llm`, llama.cpp may print a harmless assert on process exit (Metal residency set cleanup). Does not affect plan creation or execution

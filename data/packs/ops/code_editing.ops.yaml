@@ -1,0 +1,330 @@
+# Code Editing Operations Pack
+# =============================
+# Operations for code search, navigation, and editing.
+# Distilled from agent session patterns: search → read → edit → build.
+# Each op has a racket_body that shells out to grep/sed/find.
+
+name: code_editing
+description: "Code editing operations: search, navigate, edit, build, import management"
+
+ops:
+
+  # =========================================================================
+  # Search: find code by pattern
+  # =========================================================================
+  - name: grep_code
+    racket_symbol: "grep-code"
+    inputs: ['String', 'String']
+    input_names: [dir, pattern]
+    output: "String"
+    description: "(grep-code dir pattern) — recursively search for a pattern in source files"
+    racket_body: |
+      (define (grep-code dir pattern)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -rn " (sq pattern) " " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.c'"
+          " --include='*.h' --include='*.java' --include='*.yaml' --include='*.toml'"
+          " 2>/dev/null | head -50")))
+
+  # =========================================================================
+  # Search: find function/type definitions
+  # =========================================================================
+  - name: find_definition
+    racket_symbol: "find-definition"
+    inputs: ['String', 'String']
+    input_names: [dir, name]
+    output: "String"
+    description: "(find-definition dir name) — find where a function, struct, or type is defined"
+    racket_body: |
+      (define (find-definition dir name)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -rn "
+          (sq (string-append "\\(fn \\|struct \\|enum \\|type \\|class \\|interface \\|def \\|function \\)" name))
+          " " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.java'"
+          " 2>/dev/null | head -20")))
+
+  # =========================================================================
+  # Search: find usages/references
+  # =========================================================================
+  - name: find_usages
+    racket_symbol: "find-usages"
+    inputs: ['String', 'String']
+    input_names: [dir, symbol]
+    output: "String"
+    description: "(find-usages dir symbol) — find all usages of a symbol across the codebase"
+    racket_body: |
+      (define (find-usages dir symbol)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -rn '\\b" symbol "\\b' " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.java'"
+          " 2>/dev/null | head -50")))
+
+  # =========================================================================
+  # Search: find imports/dependencies
+  # =========================================================================
+  - name: find_imports
+    racket_symbol: "find-imports"
+    inputs: ['String', 'String']
+    input_names: [file, module]
+    output: "String"
+    description: "(find-imports file module) — find import/use/include statements for a module in a file"
+    racket_body: |
+      (define (find-imports file module)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -n "
+          (sq (string-append "\\(use \\|import \\|from \\|#include \\|require\\).*" module))
+          " " (sq file) " 2>/dev/null")))
+
+  # =========================================================================
+  # Navigate: list functions/types in a file
+  # =========================================================================
+  - name: list_symbols
+    racket_symbol: "list-symbols"
+    inputs: ['String']
+    input_names: [file]
+    output: "String"
+    description: "(list-symbols file) — list function and type definitions in a source file"
+    racket_body: |
+      (define (list-symbols file)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -n "
+          "'\\(^pub \\|^  pub \\|^fn \\|^  fn \\|^struct \\|^enum \\|^type \\|^trait "
+          "\\|^impl \\|^class \\|^interface \\|^def \\|^function \\|^const \\|^static \\|^let \\)' "
+          (sq file) " 2>/dev/null")))
+
+  # =========================================================================
+  # Navigate: list source files in a project
+  # =========================================================================
+  - name: list_source_files
+    racket_symbol: "list-source-files"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(list-source-files dir) — list source code files in a project, excluding build dirs"
+    racket_body: |
+      (define (list-source-files dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "find " (sq dir) " -type f"
+          " \\( -name '*.rs' -o -name '*.ts' -o -name '*.js' -o -name '*.py'"
+          " -o -name '*.go' -o -name '*.swift' -o -name '*.cpp' -o -name '*.c'"
+          " -o -name '*.h' -o -name '*.java' -o -name '*.yaml' -o -name '*.toml' \\)"
+          " -not -path '*/target/*' -not -path '*/node_modules/*'"
+          " -not -path '*/.git/*' -not -path '*/build/*' -not -path '*/dist/*'"
+          " 2>/dev/null | sort")))
+
+  # =========================================================================
+  # Edit: replace pattern in file
+  # =========================================================================
+  - name: sed_replace
+    racket_symbol: "sed-replace"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, find, replace]
+    output: "String"
+    description: "(sed-replace file find replace) — replace a pattern in a file using sed"
+    racket_body: |
+      (define (sed-replace file find replace)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' 's/" find "/" replace "/g' " (sq file)
+          " && echo 'replaced in " file "'")))
+
+  # =========================================================================
+  # Edit: fix import path in a file
+  # =========================================================================
+  - name: fix_import
+    racket_symbol: "fix-import"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, old_path, new_path]
+    output: "String"
+    description: "(fix-import file old-path new-path) — replace an import/use path in a source file"
+    racket_body: |
+      (define (fix-import file old_path new_path)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' "
+          "'s|" old_path "|" new_path "|g' " (sq file)
+          " && grep -n " (sq new_path) " " (sq file))))
+
+  # =========================================================================
+  # Edit: add a line after a match
+  # =========================================================================
+  - name: add_after
+    racket_symbol: "add-after"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, after_pattern, new_line]
+    output: "String"
+    description: "(add-after file after-pattern new-line) — insert a line after the first match of a pattern"
+    racket_body: |
+      (define (add-after file after_pattern new_line)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' '/" after_pattern "/a\\\n" new_line "' " (sq file)
+          " && grep -n -A1 " (sq after_pattern) " " (sq file) " | head -10")))
+
+  # =========================================================================
+  # Edit: remove lines matching a pattern
+  # =========================================================================
+  - name: remove_lines
+    racket_symbol: "remove-lines"
+    inputs: ['String', 'String']
+    input_names: [file, pattern]
+    output: "String"
+    description: "(remove-lines file pattern) — remove all lines matching a pattern from a file"
+    racket_body: |
+      (define (remove-lines file pattern)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' '/" pattern "/d' " (sq file)
+          " && echo 'removed lines matching " pattern " from " file "'")))
+
+  # =========================================================================
+  # Build: run cargo/npm/make and capture result
+  # =========================================================================
+  - name: build_project
+    racket_symbol: "build-project"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(build-project dir) — detect build system and run build, returning output"
+    racket_body: |
+      (define (build-project dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo build 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npm run build 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/Makefile"))
+             (string-append "cd " (sq dir) " && make 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && go build ./... 2>&1 | tail -20")]
+            [else "echo 'no build system detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # Build: run tests and capture result
+  # =========================================================================
+  - name: test_project
+    racket_symbol: "test-project"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(test-project dir) — detect build system and run tests, returning output"
+    racket_body: |
+      (define (test-project dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo test 2>&1 | tail -30")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npm test 2>&1 | tail -30")]
+            [(file-exists? (string-append dir "/Makefile"))
+             (string-append "cd " (sq dir) " && make test 2>&1 | tail -30")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && go test ./... 2>&1 | tail -30")]
+            [else "echo 'no test system detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # Build: run linter
+  # =========================================================================
+  - name: lint_project
+    racket_symbol: "lint-project"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(lint-project dir) — detect build system and run linter, returning output"
+    racket_body: |
+      (define (lint-project dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo clippy 2>&1 | tail -30")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npx eslint . 2>&1 | tail -30")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && golangci-lint run 2>&1 | tail -30")]
+            [else "echo 'no linter detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # Edit: fix test assertion value
+  # =========================================================================
+  - name: fix_assertion
+    racket_symbol: "fix-assertion"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, old_value, new_value]
+    output: "String"
+    description: "(fix-assertion file old-value new-value) — replace an expected value in test assertions"
+    racket_body: |
+      (define (fix-assertion file old_value new_value)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' 's/" old_value "/" new_value "/g' " (sq file)
+          " && grep -n " (sq new_value) " " (sq file))))
+
+  # =========================================================================
+  # Navigate: show file structure / outline
+  # =========================================================================
+  - name: file_outline
+    racket_symbol: "file-outline"
+    inputs: ['String']
+    input_names: [file]
+    output: "String"
+    description: "(file-outline file) — show structure outline: functions, types, impls with line numbers"
+    racket_body: |
+      (define (file-outline file)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -n "
+          "'\\(^pub \\|^fn \\|^struct \\|^enum \\|^type \\|^trait \\|^impl "
+          "\\|^class \\|^interface \\|^def \\|^function \\|^export \\|^module \\)' "
+          (sq file) " 2>/dev/null")))
+
+  # =========================================================================
+  # Search: find files changed recently (git)
+  # =========================================================================
+  - name: recently_changed
+    racket_symbol: "recently-changed"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(recently-changed dir) — list source files changed in the last 5 git commits"
+    racket_body: |
+      (define (recently-changed dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir)
+          " && git diff --name-only HEAD~5 2>/dev/null | sort -u")))

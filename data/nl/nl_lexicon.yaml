@@ -957,6 +957,48 @@ verbs:
   - word: mean_absolute_deviation
     action: mean_absolute_deviation
 
+  # --- Code editing ---------------------------------------------------------
+
+  - word: grep_code
+    action: grep_code
+    synonyms: [grep_source, search_code, search_source]
+
+  - word: find_definition
+    action: find_definition
+    synonyms: [find_def, locate_definition, where_defined]
+
+  - word: find_usages
+    action: find_usages
+    synonyms: [find_references, find_uses, where_used]
+
+  - word: file_outline
+    action: file_outline
+    synonyms: [code_outline, show_outline, list_symbols]
+
+  - word: fix_import
+    action: fix_import
+    synonyms: [fix_use, update_import, change_import]
+
+  - word: fix_assertion
+    action: fix_assertion
+    synonyms: [fix_assert, update_assertion, fix_expect]
+
+  - word: recently_changed
+    action: recently_changed
+    synonyms: [recent_changes, recently_modified, recent_edits]
+
+  - word: sed_replace
+    action: sed_replace
+    synonyms: [find_replace, search_replace]
+
+  - word: add_after
+    action: add_after
+    synonyms: [insert_after, add_line_after]
+
+  - word: remove_lines
+    action: remove_lines
+    synonyms: [delete_lines, strip_lines]
+
 # ---------------------------------------------------------------------------
 # Nouns: object words → concept labels
 # ---------------------------------------------------------------------------
