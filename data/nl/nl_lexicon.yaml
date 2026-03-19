@@ -999,6 +999,160 @@ verbs:
     action: remove_lines
     synonyms: [delete_lines, strip_lines]
 
+  # ==========================================================================
+  # DOMAIN 4: DEVOPS OPERATIONS
+  # ==========================================================================
+
+  # --- HTTP / API -----------------------------------------------------------
+
+  - word: http_get
+    action: http_get
+    synonyms: [fetch_url, http_request, wget_url, curlget]
+
+  - word: healthcheck
+    action: health_check
+    synonyms: [ping_url, check_health, is_up, upcheck]
+
+  # --- Docker ---------------------------------------------------------------
+
+  - word: docker_ps
+    action: docker_ps
+    synonyms: [docker_list, list_containers, show_containers]
+
+  - word: docker_build
+    action: docker_build
+    synonyms: [build_image, build_container]
+
+  - word: docker_run
+    action: docker_run
+    synonyms: [run_container, start_container, docker_start]
+
+  - word: docker_logs
+    action: docker_logs
+    synonyms: [container_logs]
+
+  - word: docker_stop
+    action: docker_stop
+    synonyms: [stop_container, halt_container]
+
+  # --- Deploy / Fly.io ------------------------------------------------------
+
+  - word: fly_deploy
+    action: fly_deploy
+    synonyms: [push_live, go_live, launch_deploy, ship_app]
+
+  - word: fly_logs
+    action: fly_logs
+    synonyms: [app_logs, deployment_logs, flyctl_logs]
+
+  - word: fly_status
+    action: fly_status
+    synonyms: [app_status, deployment_status, fly_info]
+
+  # --- GitHub CLI ------------------------------------------------------------
+
+  - word: pr_create
+    action: gh_pr_create
+    synonyms: [open_pr, create_pull_request, submit_pr]
+
+  - word: pr_list
+    action: gh_pr_list
+    synonyms: [list_prs, show_prs, open_prs]
+
+  - word: issue_create
+    action: gh_issue_create
+    synonyms: [open_issue, file_issue, report_issue]
+
+  - word: issue_list
+    action: gh_issue_list
+    synonyms: [list_issues, show_issues, open_issues]
+
+  # --- Process management ---------------------------------------------------
+
+  - word: ps_grep
+    action: ps_grep
+    synonyms: [find_process, which_process, process_search]
+
+  - word: pkill_pattern
+    action: pkill_pattern
+    synonyms: [killproc, stop_proc, end_process]
+
+  - word: port_check
+    action: port_check
+    synonyms: [check_port, whats_on_port, port_listen]
+
+  # --- Database -------------------------------------------------------------
+
+  - word: sqlite_query
+    action: sqlite_query
+    synonyms: [sql_query, query_db, run_sql]
+
+  - word: sqlite_schema
+    action: sqlite_schema
+    synonyms: [db_schema, show_tables, describe_db]
+
+  # --- SSH / Remote ---------------------------------------------------------
+
+  - word: ssh_run
+    action: ssh_run
+    synonyms: [remote_exec, ssh_exec, run_remote]
+
+  - word: scp_to
+    action: scp_to
+    synonyms: [copy_remote, send_file, scp_upload]
+
+  # --- Task runners ---------------------------------------------------------
+
+  - word: just_list
+    action: just_list
+    synonyms: [list_recipes, show_recipes, available_tasks]
+
+  - word: just_run
+    action: just_run
+    synonyms: [run_recipe, run_task, just_do]
+
+  # --- Scripting ------------------------------------------------------------
+
+  - word: run_python
+    action: run_python
+    synonyms: [exec_python, python_run, python_exec]
+
+  - word: run_node
+    action: run_node
+    synonyms: [node_run, exec_node, run_js]
+
+  # --- Build extended -------------------------------------------------------
+
+  - word: autoformat
+    action: format_project
+    synonyms: [fmt_project, code_format, cargo_fmt]
+
+  - word: typecheck
+    action: check_project
+    synonyms: [check_types, cargo_check, tsc_check]
+
+  - word: install_deps
+    action: install_deps
+    synonyms: [install_dependencies, npm_install, cargo_fetch]
+
+  # --- File ops extended ----------------------------------------------------
+
+  - word: read_lines
+    action: read_lines
+    synonyms: [show_lines, view_lines, cat_lines]
+
+  - word: line_count
+    action: line_count
+    synonyms: [count_lines, wc_count, loc_count]
+
+  - word: jq_parse
+    action: jq_parse
+    synonyms: [parse_json, json_query, jq_filter]
+
+  - word: env_get
+    action: env_get
+    synonyms: [get_env, show_env, echo_env]
+
 # ---------------------------------------------------------------------------
 # Nouns: object words → concept labels
 # ---------------------------------------------------------------------------

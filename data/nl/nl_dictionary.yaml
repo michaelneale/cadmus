@@ -3221,3 +3221,116 @@ algorithm_expansion:
   pipeline: 60
   html: 60
   localhost: 60
+  # devops domain
+  docker: 80
+  container: 80
+  containers: 80
+  dockerfile: 60
+  image: 80
+  deploy: 80
+  deployment: 60
+  flyio: 60
+  fly: 80
+  flyctl: 60
+  kubernetes: 60
+  k8s: 60
+  kubectl: 60
+  pod: 60
+  pods: 60
+  cluster: 60
+  namespace: 60
+  helm: 60
+  terraform: 60
+  ansible: 60
+  ci: 60
+  cd: 60
+  cicd: 60
+  github: 80
+  gh: 80
+  pullrequest: 60
+  pr: 80
+  prs: 60
+  issue: 80
+  issues: 60
+  merge: 80
+  review: 60
+  reviewer: 60
+  workflow: 60
+  actions: 60
+  release: 60
+  # HTTP domain
+  http: 80
+  https: 80
+  curl: 80
+  wget: 60
+  api: 80
+  endpoint: 80
+  request: 60
+  response: 60
+  json: 80
+  rest: 60
+  graphql: 60
+  status: 80
+  healthcheck: 60
+  health: 80
+  download: 80
+  upload: 60
+  # process management
+  process: 80
+  processes: 60
+  pid: 60
+  port: 80
+  ports: 60
+  listen: 60
+  listening: 60
+  socket: 60
+  # database domain
+  database: 80
+  db: 80
+  sql: 80
+  sqlite: 80
+  query: 80
+  schema: 80
+  table: 60
+  tables: 60
+  select: 60
+  insert: 60
+  # remote execution
+  ssh: 80
+  scp: 60
+  remote: 80
+  # task runners
+  just: 80
+  justfile: 60
+  recipe: 80
+  recipes: 60
+  task: 80
+  tasks: 60
+  # scripting
+  python: 80
+  python3: 60
+  node: 80
+  nodejs: 60
+  script: 80
+  # build tools expanded
+  format: 80
+  formatter: 60
+  prettier: 60
+  fmt: 80
+  check: 80
+  checking: 60
+  typecheck: 60
+  deps: 80
+  dependencies: 60
+  install: 80
+  fetch: 60
+  # line/file ops
+  lines: 80
+  linecount: 60
+  wc: 60
+  jq: 80
+  parse: 80
+  env: 80
+  environment: 60
+  variable: 60
+  clone: 80

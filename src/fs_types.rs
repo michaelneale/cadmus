@@ -58,6 +58,7 @@ const STATISTICS_OPS_YAML: &str = include_str!("../data/packs/ops/statistics.ops
 const MACOS_TASKS_OPS_YAML: &str = include_str!("../data/packs/ops/macos_tasks.ops.yaml");
 const CODE_EDITING_OPS_YAML: &str = include_str!("../data/packs/ops/code_editing.ops.yaml");
 const WEB_OPS_YAML: &str = include_str!("../data/packs/ops/web.ops.yaml");
+const DEVOPS_OPS_YAML: &str = include_str!("../data/packs/ops/devops.ops.yaml");
 
 pub fn build_full_registry() -> OperationRegistry {
     // Start with embedded fs_ops (compatibility aliases)
@@ -116,6 +117,12 @@ pub fn build_full_registry() -> OperationRegistry {
         &mut reg,
     );
 
+    // Merge devops ops (HTTP, Docker, deploy, GitHub CLI, process mgmt, SSH, DB, task runners)
+    let _ = load_ops_pack_str_into(
+        &std::fs::read_to_string("data/packs/ops/devops.ops.yaml")
+            .unwrap_or_else(|_| DEVOPS_OPS_YAML.to_string()),
+        &mut reg,
+    );
 
     // Run inference to discover and promote ops from the fact pack
     // (e.g., subtract, multiply, divide are discovered from racket.facts.yaml)

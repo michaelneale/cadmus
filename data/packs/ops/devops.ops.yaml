@@ -1,0 +1,634 @@
+# DevOps Operations Pack
+# ======================
+# Operations for deployment, containers, CI/CD, GitHub CLI, HTTP requests,
+# process management, and remote execution.
+# Distilled from ~21k tool calls across 25+ pi sessions and 138 Goose sessions.
+#
+# Categories:
+#   - HTTP: curl-based requests and JSON APIs
+#   - Docker: container lifecycle, images, logs
+#   - Deploy: fly.io deployment, logs, secrets
+#   - GitHub CLI: PRs, issues, repos
+#   - Process management: ps, kill, lsof
+#   - Remote execution: ssh, scp
+#   - Database: sqlite3 queries
+#   - Task runners: just, make
+
+name: devops
+description: "DevOps operations: HTTP, Docker, deploy, GitHub CLI, process management, SSH, database, task runners"
+
+ops:
+
+  # =========================================================================
+  # HTTP: GET request
+  # =========================================================================
+  - name: http_get
+    racket_symbol: "http-get"
+    inputs: ['String']
+    input_names: [url]
+    output: "String"
+    description: "(http-get url) — make an HTTP GET request and return the response body"
+    racket_body: |
+      (define (http-get url)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "curl -sS --max-time 30 " (sq url) " 2>&1")))
+
+  # =========================================================================
+  # HTTP: POST request with JSON body
+  # =========================================================================
+  - name: http_post_json
+    racket_symbol: "http-post-json"
+    inputs: ['String', 'String']
+    input_names: [url, json_body]
+    output: "String"
+    description: "(http-post-json url json-body) — POST JSON to a URL and return the response"
+    racket_body: |
+      (define (http-post-json url json_body)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "curl -sS --max-time 30 -X POST "
+          "-H 'Content-Type: application/json' "
+          "-d " (sq json_body) " " (sq url) " 2>&1")))
+
+  # =========================================================================
+  # HTTP: health check (returns status code + time)
+  # =========================================================================
+  - name: http_health_check
+    racket_symbol: "http-health-check"
+    inputs: ['String']
+    input_names: [url]
+    output: "String"
+    description: "(http-health-check url) — check if a URL is reachable, return status code and timing"
+    racket_body: |
+      (define (http-health-check url)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "curl -sS --max-time 10 -o /dev/null -w "
+          "'status: %{http_code}\\ntime: %{time_total}s\\nsize: %{size_download} bytes\\n' "
+          (sq url) " 2>&1")))
+
+  # =========================================================================
+  # HTTP: download file
+  # =========================================================================
+  - name: http_download
+    racket_symbol: "http-download"
+    inputs: ['String', 'String']
+    input_names: [url, output_path]
+    output: "String"
+    description: "(http-download url output-path) — download a file from a URL to a local path"
+    racket_body: |
+      (define (http-download url output_path)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "curl -sS --max-time 120 -L -o " (sq output_path) " " (sq url)
+          " && echo 'downloaded to " output_path "' && ls -lh " (sq output_path))))
+
+  # =========================================================================
+  # Docker: list containers
+  # =========================================================================
+  - name: docker_ps
+    racket_symbol: "docker-ps"
+    inputs: []
+    output: "String"
+    description: "(docker-ps) — list running Docker containers with status"
+    racket_body: |
+      (define (docker-ps)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (sh "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\\t{{.Image}}' 2>&1"))
+
+  # =========================================================================
+  # Docker: build image
+  # =========================================================================
+  - name: docker_build
+    racket_symbol: "docker-build"
+    inputs: ['String', 'String']
+    input_names: [dir, tag]
+    output: "String"
+    description: "(docker-build dir tag) — build a Docker image from a Dockerfile in dir"
+    racket_body: |
+      (define (docker-build dir tag)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && docker build -t " (sq tag) " . 2>&1 | tail -20")))
+
+  # =========================================================================
+  # Docker: run container
+  # =========================================================================
+  - name: docker_run
+    racket_symbol: "docker-run"
+    inputs: ['String', 'String']
+    input_names: [image, args]
+    output: "String"
+    description: "(docker-run image args) — run a Docker container with given arguments"
+    racket_body: |
+      (define (docker-run image args)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "docker run --rm " args " " (sq image) " 2>&1 | tail -30")))
+
+  # =========================================================================
+  # Docker: view container logs
+  # =========================================================================
+  - name: docker_logs
+    racket_symbol: "docker-logs"
+    inputs: ['String']
+    input_names: [container]
+    output: "String"
+    description: "(docker-logs container) — show recent logs from a Docker container"
+    racket_body: |
+      (define (docker-logs container)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "docker logs --tail 50 " (sq container) " 2>&1")))
+
+  # =========================================================================
+  # Docker: stop container
+  # =========================================================================
+  - name: docker_stop
+    racket_symbol: "docker-stop"
+    inputs: ['String']
+    input_names: [container]
+    output: "String"
+    description: "(docker-stop container) — stop a running Docker container"
+    racket_body: |
+      (define (docker-stop container)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "docker stop " (sq container) " 2>&1")))
+
+  # =========================================================================
+  # Deploy: fly.io deploy
+  # =========================================================================
+  - name: fly_deploy
+    racket_symbol: "fly-deploy"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(fly-deploy dir) — deploy a Fly.io app from the given directory"
+    racket_body: |
+      (define (fly-deploy dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && flyctl deploy 2>&1 | tail -30")))
+
+  # =========================================================================
+  # Deploy: fly.io logs
+  # =========================================================================
+  - name: fly_logs
+    racket_symbol: "fly-logs"
+    inputs: ['String']
+    input_names: [app_name]
+    output: "String"
+    description: "(fly-logs app-name) — show recent logs from a Fly.io app"
+    racket_body: |
+      (define (fly-logs app_name)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "flyctl logs --app " (sq app_name) " --no-tail 2>&1 | tail -50")))
+
+  # =========================================================================
+  # Deploy: fly.io status
+  # =========================================================================
+  - name: fly_status
+    racket_symbol: "fly-status"
+    inputs: ['String']
+    input_names: [app_name]
+    output: "String"
+    description: "(fly-status app-name) — show Fly.io app status (instances, health, regions)"
+    racket_body: |
+      (define (fly-status app_name)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "flyctl status --app " (sq app_name) " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: create pull request
+  # =========================================================================
+  - name: gh_pr_create
+    racket_symbol: "gh-pr-create"
+    inputs: ['String', 'String', 'String']
+    input_names: [dir, title, body]
+    output: "String"
+    description: "(gh-pr-create dir title body) — create a GitHub pull request from the current branch"
+    racket_body: |
+      (define (gh-pr-create dir title body)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh pr create --title " (sq title)
+          " --body " (sq body) " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: list pull requests
+  # =========================================================================
+  - name: gh_pr_list
+    racket_symbol: "gh-pr-list"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(gh-pr-list dir) — list open pull requests for the repo"
+    racket_body: |
+      (define (gh-pr-list dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir)
+          " && gh pr list --json number,title,author,state --limit 20 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: view PR diff
+  # =========================================================================
+  - name: gh_pr_diff
+    racket_symbol: "gh-pr-diff"
+    inputs: ['String', 'String']
+    input_names: [dir, pr_number]
+    output: "String"
+    description: "(gh-pr-diff dir pr-number) — show the diff for a pull request"
+    racket_body: |
+      (define (gh-pr-diff dir pr_number)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh pr diff " pr_number " 2>&1 | head -100")))
+
+  # =========================================================================
+  # GitHub CLI: create issue
+  # =========================================================================
+  - name: gh_issue_create
+    racket_symbol: "gh-issue-create"
+    inputs: ['String', 'String', 'String']
+    input_names: [dir, title, body]
+    output: "String"
+    description: "(gh-issue-create dir title body) — create a GitHub issue"
+    racket_body: |
+      (define (gh-issue-create dir title body)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh issue create --title " (sq title)
+          " --body " (sq body) " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: list issues
+  # =========================================================================
+  - name: gh_issue_list
+    racket_symbol: "gh-issue-list"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(gh-issue-list dir) — list open issues for the repo"
+    racket_body: |
+      (define (gh-issue-list dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir)
+          " && gh issue list --json number,title,state,labels --limit 20 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: repo clone
+  # =========================================================================
+  - name: gh_repo_clone
+    racket_symbol: "gh-repo-clone"
+    inputs: ['String', 'String']
+    input_names: [repo, dir]
+    output: "String"
+    description: "(gh-repo-clone repo dir) — clone a GitHub repository"
+    racket_body: |
+      (define (gh-repo-clone repo dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "gh repo clone " (sq repo) " " (sq dir) " 2>&1")))
+
+  # =========================================================================
+  # Process: list processes matching a pattern
+  # =========================================================================
+  - name: ps_grep
+    racket_symbol: "ps-grep"
+    inputs: ['String']
+    input_names: [pattern]
+    output: "String"
+    description: "(ps-grep pattern) — find processes matching a pattern"
+    racket_body: |
+      (define (ps-grep pattern)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "ps aux | grep -i " (sq pattern) " | grep -v grep | head -20")))
+
+  # =========================================================================
+  # Process: kill processes by pattern
+  # =========================================================================
+  - name: pkill_pattern
+    racket_symbol: "pkill-pattern"
+    inputs: ['String']
+    input_names: [pattern]
+    output: "String"
+    description: "(pkill-pattern pattern) — kill all processes matching a pattern"
+    racket_body: |
+      (define (pkill-pattern pattern)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "pkill -f " (sq pattern) " 2>&1; echo 'killed processes matching " pattern "'")))
+
+  # =========================================================================
+  # Process: check what's listening on a port
+  # =========================================================================
+  - name: port_check
+    racket_symbol: "port-check"
+    inputs: ['String']
+    input_names: [port]
+    output: "String"
+    description: "(port-check port) — check what process is listening on a given port"
+    racket_body: |
+      (define (port-check port)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (sh (string-append "lsof -i :" port " -sTCP:LISTEN 2>/dev/null || echo 'nothing listening on port " port "'")))
+
+  # =========================================================================
+  # SSH: run a command on a remote host
+  # =========================================================================
+  - name: ssh_run
+    racket_symbol: "ssh-run"
+    inputs: ['String', 'String']
+    input_names: [host, command]
+    output: "String"
+    description: "(ssh-run host command) — execute a command on a remote host via SSH"
+    racket_body: |
+      (define (ssh-run host command)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no "
+          (sq host) " " (sq command) " 2>&1")))
+
+  # =========================================================================
+  # SSH: copy file to remote host
+  # =========================================================================
+  - name: scp_to
+    racket_symbol: "scp-to"
+    inputs: ['String', 'String']
+    input_names: [local_path, remote_dest]
+    output: "String"
+    description: "(scp-to local-path remote-dest) — copy a file to a remote host via scp"
+    racket_body: |
+      (define (scp-to local_path remote_dest)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "scp -o StrictHostKeyChecking=no "
+          (sq local_path) " " (sq remote_dest) " 2>&1")))
+
+  # =========================================================================
+  # Database: run a SQLite query
+  # =========================================================================
+  - name: sqlite_query
+    racket_symbol: "sqlite-query"
+    inputs: ['String', 'String']
+    input_names: [db_path, query]
+    output: "String"
+    description: "(sqlite-query db-path query) — run a SQL query against a SQLite database"
+    racket_body: |
+      (define (sqlite-query db_path query)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sqlite3 " (sq db_path) " " (sq query) " 2>&1 | head -100")))
+
+  # =========================================================================
+  # Database: show SQLite schema
+  # =========================================================================
+  - name: sqlite_schema
+    racket_symbol: "sqlite-schema"
+    inputs: ['String']
+    input_names: [db_path]
+    output: "String"
+    description: "(sqlite-schema db-path) — show the schema of a SQLite database"
+    racket_body: |
+      (define (sqlite-schema db_path)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sqlite3 " (sq db_path) " '.schema' 2>&1")))
+
+  # =========================================================================
+  # Task runner: just
+  # =========================================================================
+  - name: just_run
+    racket_symbol: "just-run"
+    inputs: ['String', 'String']
+    input_names: [dir, recipe]
+    output: "String"
+    description: "(just-run dir recipe) — run a just recipe in the given directory"
+    racket_body: |
+      (define (just-run dir recipe)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && just " recipe " 2>&1 | tail -30")))
+
+  # =========================================================================
+  # Task runner: list just recipes
+  # =========================================================================
+  - name: just_list
+    racket_symbol: "just-list"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(just-list dir) — list available just recipes in a project"
+    racket_body: |
+      (define (just-list dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && just --list 2>&1")))
+
+  # =========================================================================
+  # Script: run a Python script
+  # =========================================================================
+  - name: run_python
+    racket_symbol: "run-python"
+    inputs: ['String']
+    input_names: [script]
+    output: "String"
+    description: "(run-python script) — run a Python script file and return output"
+    racket_body: |
+      (define (run-python script)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "python3 " (sq script) " 2>&1 | tail -50")))
+
+  # =========================================================================
+  # Script: run a Node.js script
+  # =========================================================================
+  - name: run_node
+    racket_symbol: "run-node"
+    inputs: ['String']
+    input_names: [script]
+    output: "String"
+    description: "(run-node script) — run a Node.js script file and return output"
+    racket_body: |
+      (define (run-node script)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "node " (sq script) " 2>&1 | tail -50")))
+
+  # =========================================================================
+  # Build: format code
+  # =========================================================================
+  - name: format_project
+    racket_symbol: "format-project"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(format-project dir) — auto-detect and run code formatter"
+    racket_body: |
+      (define (format-project dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo fmt 2>&1")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npx prettier --write . 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && gofmt -w . 2>&1")]
+            [else "echo 'no formatter detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # Build: type check project
+  # =========================================================================
+  - name: check_project
+    racket_symbol: "check-project"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(check-project dir) — run type checking without full compilation"
+    racket_body: |
+      (define (check-project dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo check 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npx tsc --noEmit 2>&1 | tail -20")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && go vet ./... 2>&1 | tail -20")]
+            [else "echo 'no type checker detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # Build: install dependencies
+  # =========================================================================
+  - name: install_deps
+    racket_symbol: "install-deps"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(install-deps dir) — auto-detect and install project dependencies"
+    racket_body: |
+      (define (install-deps dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo fetch 2>&1 | tail -10")]
+            [(file-exists? (string-append dir "/package-lock.json"))
+             (string-append "cd " (sq dir) " && npm ci 2>&1 | tail -10")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npm install 2>&1 | tail -10")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && go mod download 2>&1 | tail -10")]
+            [(file-exists? (string-append dir "/requirements.txt"))
+             (string-append "cd " (sq dir) " && pip install -r requirements.txt 2>&1 | tail -10")]
+            [else "echo 'no dependency file detected'"]))
+        (sh cmd))
+
+  # =========================================================================
+  # File: read a range of lines from a file
+  # =========================================================================
+  - name: read_lines
+    racket_symbol: "read-lines-range"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, start, end]
+    output: "String"
+    description: "(read-lines-range file start end) — read lines start through end from a file"
+    racket_body: |
+      (define (read-lines-range file start end)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -n '" start "," end "p' " (sq file))))
+
+  # =========================================================================
+  # File: count lines in files
+  # =========================================================================
+  - name: line_count
+    racket_symbol: "line-count"
+    inputs: ['String']
+    input_names: [path]
+    output: "String"
+    description: "(line-count path) — count lines in a file or all files in a directory"
+    racket_body: |
+      (define (line-count path)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "wc -l " (sq path) " 2>/dev/null || "
+          "find " (sq path) " -type f -name '*.rs' -o -name '*.ts' -o -name '*.py' "
+          "-o -name '*.go' -o -name '*.js' | xargs wc -l 2>/dev/null | tail -20")))
+
+  # =========================================================================
+  # JSON: parse/query with jq
+  # =========================================================================
+  - name: jq_parse
+    racket_symbol: "jq-parse"
+    inputs: ['String', 'String']
+    input_names: [file, query]
+    output: "String"
+    description: "(jq-parse file query) — parse a JSON file with a jq query"
+    racket_body: |
+      (define (jq-parse file query)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "jq " (sq query) " " (sq file) " 2>&1")))
+
+  # =========================================================================
+  # Env: show environment variable
+  # =========================================================================
+  - name: env_get
+    racket_symbol: "env-get"
+    inputs: ['String']
+    input_names: [var_name]
+    output: "String"
+    description: "(env-get var-name) — get the value of an environment variable"
+    racket_body: |
+      (define (env-get var_name)
+        (or (getenv var_name) (string-append var_name " is not set")))
