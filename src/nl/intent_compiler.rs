@@ -298,6 +298,60 @@ pub fn compile_ir(ir: &IntentIR) -> CompileResult {
         }
     }
 
+    // ── Concept-ops dispatch: verb_action × noun_concept → op/plan ────
+    // Extract (verb_action, concept) pairs from select steps.
+    // The verb_action is preserved in the select step's params by tree_to_intent.
+    // This routes "list containers" → docker_ps, "view PR" → gh_pr_view, etc.
+    {
+        let lex = crate::nl::lexicon::lexicon();
+
+        // Collect (verb_action, concept) pairs from select steps
+        let mut action_concept_pairs: Vec<(String, String)> = Vec::new();
+        for step in &ir.steps {
+            if step.action == "select" {
+                if let Some(where_val) = step.params.get("where") {
+                    if let Some(concept) = where_val.strip_prefix("kind: \"").and_then(|s| s.strip_suffix('"')) {
+                        // Use the preserved verb_action if available, else try primary_action
+                        let verb_action = step.params.get("verb_action")
+                            .map(|s| s.as_str())
+                            .or(primary_action)
+                            .unwrap_or("select");
+                        action_concept_pairs.push((verb_action.to_string(), concept.to_string()));
+                    }
+                }
+            }
+        }
+
+        // Also try the primary action with concepts (for non-select verb actions
+        // that still have a concept, like "stop containers" → terminate + docker_container)
+        if let Some(action) = primary_action {
+            for step in &ir.steps {
+                if step.action == "select" {
+                    if let Some(where_val) = step.params.get("where") {
+                        if let Some(concept) = where_val.strip_prefix("kind: \"").and_then(|s| s.strip_suffix('"')) {
+                            let pair = (action.to_string(), concept.to_string());
+                            if !action_concept_pairs.contains(&pair) {
+                                action_concept_pairs.push(pair);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (action, concept) in &action_concept_pairs {
+            if let Some(op_name) = lex.concept_op(action, concept) {
+                // Found a concept-op match — load as plan file or build single-step plan
+                if let Some(plan) = try_load_plan_file(op_name) {
+                    return CompileResult::Ok(plan);
+                }
+                if let Some(entry) = registry.get_poly(op_name) {
+                    return compile_concept_op(op_name, entry);
+                }
+            }
+        }
+    }
+
     // Extract the target path from the IR's input selector
     let target_path = ir.inputs.first()
         .and_then(|i| i.selector.scope.as_ref())
@@ -590,6 +644,32 @@ pub fn compile_algorithm_op_by_name(
     }
 }
 
+
+/// Compile a concept-dispatched op into a single-step PlanDef.
+///
+/// Used when the concept_ops table maps (action, concept) to a specific op.
+/// Produces a plan with the op's declared inputs and a single step.
+fn compile_concept_op(
+    op_name: &str,
+    op: &crate::registry::PolyOpEntry,
+) -> CompileResult {
+    let inputs = build_op_inputs(op);
+    let args = build_op_step_args(op, &[]);
+    let step = RawStep {
+        op: op_name.to_string(),
+        args,
+    };
+
+    let plan = PlanDef {
+        name: op_name.to_string(),
+        inputs,
+        output: None,
+        steps: vec![step],
+        bindings: HashMap::new(),
+    };
+
+    CompileResult::Ok(plan)
+}
 
 /// Check if a path looks like a file (has an extension).
 fn is_file_path(path: &str) -> bool {
@@ -1239,5 +1319,137 @@ mod tests {
             }
             other => panic!("expected Ok, got: {:?}", other),
         }
+    }
+
+    // -- Concept-ops dispatch tests --
+
+    #[test]
+    fn test_concept_ops_list_containers() {
+        let plan = expect_plan("list containers");
+        assert_eq!(plan.steps[0].op, "docker_ps",
+            "list containers should map to docker_ps, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_stop_containers() {
+        let plan = expect_plan("stop containers");
+        assert_eq!(plan.steps[0].op, "docker_stop",
+            "stop containers should map to docker_stop, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_prs() {
+        let plan = expect_plan("list prs");
+        assert_eq!(plan.steps[0].op, "gh_pr_list",
+            "list prs should map to gh_pr_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_issues() {
+        let plan = expect_plan("list issues");
+        assert_eq!(plan.steps[0].op, "gh_issue_list",
+            "list issues should map to gh_issue_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_models() {
+        let plan = expect_plan("list models");
+        assert_eq!(plan.steps[0].op, "ollama_list",
+            "list models should map to ollama_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_todos() {
+        let plan = expect_plan("list todos");
+        assert_eq!(plan.steps[0].op, "find_todos",
+            "list todos should map to find_todos, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_find_todos() {
+        let plan = expect_plan("find todos");
+        assert_eq!(plan.steps[0].op, "find_todos",
+            "find todos should map to find_todos, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_build_project() {
+        let plan = expect_plan("build project");
+        assert_eq!(plan.steps[0].op, "build_project",
+            "build project should map to build_project, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_test_project() {
+        let plan = expect_plan("test project");
+        assert_eq!(plan.steps[0].op, "test_project",
+            "test project should map to test_project, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_releases() {
+        let plan = expect_plan("list releases");
+        assert_eq!(plan.steps[0].op, "gh_release_list",
+            "list releases should map to gh_release_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_install_dependencies() {
+        let plan = expect_plan("install dependencies");
+        assert_eq!(plan.steps[0].op, "install_deps",
+            "install dependencies should map to install_deps, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_view_pr() {
+        let plan = expect_plan("view pr");
+        assert_eq!(plan.steps[0].op, "gh_pr_view",
+            "view pr should map to gh_pr_view, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_runs() {
+        let plan = expect_plan("list runs");
+        assert_eq!(plan.steps[0].op, "gh_run_list",
+            "list runs should map to gh_run_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_recipes() {
+        let plan = expect_plan("list recipes");
+        assert_eq!(plan.steps[0].op, "just_list",
+            "list recipes should map to just_list, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_list_simulators() {
+        let plan = expect_plan("list simulators");
+        assert_eq!(plan.steps[0].op, "xcode_list_sims",
+            "list simulators should map to xcode_list_sims, got ops: {:?}",
+            plan.steps.iter().map(|s| &s.op).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_concept_ops_fs_still_works() {
+        // Verify that filesystem commands still route correctly
+        // (domain nouns don't break file-type concepts)
+        let plan = expect_plan("find pdfs in documents");
+        let ops: Vec<&str> = plan.steps.iter().map(|s| s.op.as_str()).collect();
+        assert!(ops.contains(&"walk_tree"), "should have walk_tree: {:?}", ops);
+        assert!(ops.contains(&"find_matching"), "should have find_matching: {:?}", ops);
     }
 }

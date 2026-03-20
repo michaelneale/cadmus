@@ -42,6 +42,15 @@ struct LexiconYaml {
     fillers: Vec<String>,
     #[serde(default)]
     phrase_groups: Vec<PhraseGroupEntry>,
+    #[serde(default)]
+    concept_ops: Vec<ConceptOpEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConceptOpEntry {
+    action: String,
+    concept: String,
+    op: String,
 }
 #[derive(Debug, Deserialize)]
 struct ApprovalRejectionLex {
@@ -192,6 +201,10 @@ pub struct Lexicon {
     pub rejection_multis: Vec<String>,
     /// Explain trigger words.
     pub explain_triggers: std::collections::HashSet<String>,
+
+    /// Concept ops: (action, concept) → op_name.
+    /// Maps verb_action × noun_concept to a concrete op or plan name.
+    pub concept_ops: HashMap<(String, String), String>,
 }
 
 impl Lexicon {
@@ -247,8 +260,12 @@ impl Lexicon {
         }
         // First word is rejection + short tail (max 3 tokens total).
         // Longer inputs like "n queens count solutions" are commands, not rejections.
+        // But NOT if the tail contains a known noun — "stop containers" is a command.
         if self.rejection_singles.contains(&tokens[0]) && tokens.len() <= 4 {
-            return true;
+            let tail_has_noun = tokens[1..].iter().any(|t| self.nouns.contains_key(t));
+            if !tail_has_noun {
+                return true;
+            }
         }
         false
     }
@@ -272,6 +289,13 @@ impl Lexicon {
             return Some(token.clone());
         }
         None
+    }
+
+    /// Look up a (verb_action, noun_concept) pair in the concept_ops table.
+    /// Returns the op/plan name if a mapping exists.
+    pub fn concept_op(&self, action: &str, concept: &str) -> Option<&str> {
+        let key = (action.to_lowercase(), concept.to_lowercase());
+        self.concept_ops.get(&key).map(|s| s.as_str())
     }
 }
 
@@ -504,6 +528,14 @@ fn parse_lexicon(yaml_str: &str) -> Result<Lexicon, String> {
         })
         .collect();
 
+    // Concept ops: (action, concept) → op_name
+    let concept_ops: HashMap<(String, String), String> = raw.concept_ops.iter()
+        .map(|entry| (
+            (entry.action.to_lowercase(), entry.concept.to_lowercase()),
+            entry.op.clone(),
+        ))
+        .collect();
+
     Ok(Lexicon {
         categories,
         verbs,
@@ -522,6 +554,7 @@ fn parse_lexicon(yaml_str: &str) -> Result<Lexicon, String> {
         rejection_singles,
         rejection_multis,
         explain_triggers,
+        concept_ops,
     })
 }
 

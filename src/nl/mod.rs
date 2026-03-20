@@ -1265,4 +1265,98 @@ mod tests {
             other => panic!("expected PlanCreated, got: {:?}", other),
         }
     }
+
+    // -- Concept-ops dispatch via full NL pipeline --
+
+    #[test]
+    fn test_process_list_docker_containers() {
+        let mut state = DialogueState::new();
+        let response = process_input("list docker containers", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("docker_ps") || plan_sexpr.contains("docker-ps"),
+                    "expected docker_ps in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_show_prs() {
+        let mut state = DialogueState::new();
+        let response = process_input("show prs", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("gh_pr_list") || plan_sexpr.contains("gh-pr-list"),
+                    "expected gh_pr_list in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_find_todos() {
+        let mut state = DialogueState::new();
+        let response = process_input("find todos", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("find_todos") || plan_sexpr.contains("find-todos"),
+                    "expected find_todos in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_list_ollama_models() {
+        let mut state = DialogueState::new();
+        let response = process_input("list models", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("ollama_list") || plan_sexpr.contains("ollama-list"),
+                    "expected ollama_list in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_stop_containers() {
+        let mut state = DialogueState::new();
+        let response = process_input("stop containers", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("docker_stop") || plan_sexpr.contains("docker-stop"),
+                    "expected docker_stop in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_show_pull_requests_phrase() {
+        let mut state = DialogueState::new();
+        // "pull requests" should be phrase-tokenized to "prs"
+        let response = process_input("show pull requests", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("gh_pr_list") || plan_sexpr.contains("gh-pr-list"),
+                    "expected gh_pr_list in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_process_list_ci_runs() {
+        let mut state = DialogueState::new();
+        let response = process_input("list ci runs", &mut state);
+        match response {
+            NlResponse::PlanCreated { plan_sexpr, .. } => {
+                assert!(plan_sexpr.contains("gh_run_list") || plan_sexpr.contains("gh-run-list"),
+                    "expected gh_run_list in plan, got: {}", plan_sexpr);
+            }
+            other => panic!("expected PlanCreated, got: {:?}", other),
+        }
+    }
 }

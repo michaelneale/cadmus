@@ -3375,3 +3375,16 @@ algorithm_expansion:
   restart: 80
   reload: 60
   hotreload: 60
+  releases: 60
+  models: 70
+  todos: 50
+  fixmes: 20
+  simulators: 30
+  sims: 25
+  sim: 20
+  dep: 20
+  packages: 50
+  databases: 30
+  schemas: 20
+  tickets: 30
+  ticket: 25

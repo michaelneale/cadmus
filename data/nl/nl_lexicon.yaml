@@ -172,7 +172,7 @@ verbs:
 
   - word: unmount
     action: unmount
-    synonyms: [detach, disconnect, unbind, unload, disengage, undock, unplug, decouple, separate, unlink, sever, eject, release]
+    synonyms: [detach, disconnect, unbind, unload, disengage, undock, unplug, decouple, separate, unlink, sever, eject]
 
   # --- Sync / backup --------------------------------------------------------
 
@@ -282,7 +282,7 @@ verbs:
 
   - word: document
     action: document
-    synonyms: [annotate, comment, describe, illustrate, diagram, chart, graph, depict, portray, represent, model, map, summarize, abstract, synopsis, recap]
+    synonyms: [annotate, comment, describe, illustrate, diagram, chart, graph, depict, portray, represent, summarize, abstract, synopsis, recap]
 
   - word: configure
     action: configure
@@ -1181,7 +1181,7 @@ verbs:
 
   - word: gh_release_list
     action: gh_release_list
-    synonyms: [list_releases, show_releases, releases]
+    synonyms: [list_releases, show_releases]
 
   - word: gh_gist_create
     action: gh_gist_create
@@ -1298,10 +1298,181 @@ nouns:
     synonyms: ["big files", "huge files"]
   - word: errors
     concept: error_text
-    synonyms: [error, bugs, bug, issues, issue, warnings, warning]
+    synonyms: [error, bugs, bug, warnings, warning]
   - word: text
     concept: text_content
     synonyms: [content, string, strings, pattern, patterns]
+
+  # DevOps domain objects
+  - word: containers
+    concept: docker_container
+    synonyms: [container]
+  - word: prs
+    concept: pull_request
+    synonyms: [pr]
+  - word: issues
+    concept: gh_issue
+    synonyms: [issue, tickets, ticket]
+  - word: runs
+    concept: ci_run
+    synonyms: [run_ci]
+  - word: releases
+    concept: gh_release
+    synonyms: [release]
+  - word: models
+    concept: ollama_model
+    synonyms: [model]
+  - word: processes
+    concept: os_process
+    synonyms: []
+  - word: todos
+    concept: code_todo
+    synonyms: [todo, fixmes, fixme]
+  - word: recipes
+    concept: just_recipe
+    synonyms: [recipe, tasks, task]
+  - word: simulators
+    concept: ios_simulator
+    synonyms: [simulator, sims, sim]
+  - word: dependencies
+    concept: dependency
+    synonyms: [deps, dep, packages]
+  - word: database
+    concept: database
+    synonyms: [db, databases]
+  - word: schema
+    concept: db_schema
+    synonyms: [schemas]
+  - word: project
+    concept: project
+    synonyms: [codebase, repo]
+
+
+# ---------------------------------------------------------------------------
+# Concept ops: verb_action × noun_concept → op_name
+# ---------------------------------------------------------------------------
+# When the Earley parser extracts (action, concept), this table resolves
+# the pair to a specific op or plan. Checked BEFORE filesystem action recipes.
+# ---------------------------------------------------------------------------
+concept_ops:
+  # Docker
+  - action: enumerate
+    concept: docker_container
+    op: docker_ps
+  - action: terminate
+    concept: docker_container
+    op: docker_stop
+  - action: execute
+    concept: docker_container
+    op: docker_run
+  - action: read
+    concept: docker_container
+    op: docker_logs
+
+  # GitHub - PRs
+  - action: enumerate
+    concept: pull_request
+    op: gh_pr_list
+  - action: create
+    concept: pull_request
+    op: gh_pr_create
+  - action: read
+    concept: pull_request
+    op: gh_pr_view
+
+  # GitHub - Issues
+  - action: enumerate
+    concept: gh_issue
+    op: gh_issue_list
+  - action: create
+    concept: gh_issue
+    op: gh_issue_create
+
+  # GitHub - CI/Runs
+  - action: enumerate
+    concept: ci_run
+    op: gh_run_list
+  - action: read
+    concept: ci_run
+    op: gh_run_view
+  - action: execute
+    concept: ci_run
+    op: gh_run_rerun
+
+  # GitHub - Releases
+  - action: enumerate
+    concept: gh_release
+    op: gh_release_list
+  - action: create
+    concept: gh_release
+    op: gh_release_create
+
+  # Ollama
+  - action: enumerate
+    concept: ollama_model
+    op: ollama_list
+  - action: execute
+    concept: ollama_model
+    op: ollama_run
+  - action: download
+    concept: ollama_model
+    op: ollama_pull
+
+  # Processes
+  - action: enumerate
+    concept: os_process
+    op: ps_grep
+  - action: select
+    concept: os_process
+    op: ps_grep
+  - action: terminate
+    concept: os_process
+    op: pkill_pattern
+
+  # Database
+  - action: query
+    concept: database
+    op: sqlite_query
+  - action: read
+    concept: db_schema
+    op: sqlite_schema
+
+  # Todos
+  - action: select
+    concept: code_todo
+    op: find_todos
+  - action: enumerate
+    concept: code_todo
+    op: find_todos
+
+  # Just recipes
+  - action: enumerate
+    concept: just_recipe
+    op: just_list
+  - action: execute
+    concept: just_recipe
+    op: just_run
+
+  # Xcode
+  - action: enumerate
+    concept: ios_simulator
+    op: xcode_list_sims
+
+  # Dependencies
+  - action: install
+    concept: dependency
+    op: install_deps
+
+  # Project-level
+  - action: build
+    concept: project
+    op: build_project
+  - action: test
+    concept: project
+    op: test_project
+  - action: lint
+    concept: project
+    op: lint_project
 
 # ---------------------------------------------------------------------------
 # Prepositions: location/relation markers
@@ -2269,6 +2440,20 @@ phrase_groups:
     canonical: dispersion_comparison
   - skeleton: [mean, absolute, deviation]
     canonical: dispersion_comparison
+
+  # --- Domain noun phrases (multi-word → canonical noun) ------------------
+  # Only needed when one word in the phrase would confuse the grammar
+  # (e.g., "pull" is a verb, so "pull requests" needs joining).
+  # Don't add phrases where both words are fine as separate tokens —
+  # that breaks plan-name matching.
+  - skeleton: [pull, requests]
+    canonical: prs
+  - skeleton: [pull, request]
+    canonical: prs
+  - skeleton: [merge, requests]
+    canonical: prs
+  - skeleton: [merge, request]
+    canonical: prs
 
 fillers:
   - up

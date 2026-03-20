@@ -278,9 +278,12 @@ pub fn tool_catalog(read_only: bool) -> String {
 
 /// Domain keyword → ops pack mapping. Each domain has trigger keywords
 /// and the ops to inject when those keywords appear in the task.
+/// If `op_prefixes` is non-empty, only ops whose name starts with one of
+/// those prefixes are included (avoids dumping a 50-op pack into the prompt).
 struct DomainHint {
     keywords: &'static [&'static str],
     pack: &'static str,
+    op_prefixes: &'static [&'static str],
 }
 
 const DOMAIN_HINTS: &[DomainHint] = &[
@@ -289,12 +292,14 @@ const DOMAIN_HINTS: &[DomainHint] = &[
                      "uppercase", "lowercase", "trim", "pad", "regex", "parse",
                      "substring", "char", "reverse"],
         pack: "text_processing",
+        op_prefixes: &[],
     },
     DomainHint {
         keywords: &["mean", "average", "median", "mode", "variance", "deviation",
                      "percentile", "correlation", "standard", "stats", "statistical",
                      "histogram", "z-score", "zscore", "quartile"],
         pack: "statistics",
+        op_prefixes: &[],
     },
     DomainHint {
         keywords: &["trash", "recent", "modified", "spotlight", "launchctl",
@@ -302,16 +307,84 @@ const DOMAIN_HINTS: &[DomainHint] = &[
                      "open", "app", "finder", "backup", "duplicate", "git",
                      "commit", "push", "hidden"],
         pack: "macos_tasks",
+        op_prefixes: &[],
     },
     DomainHint {
         keywords: &["http", "server", "route", "web", "port", "html", "endpoint"],
         pack: "web",
+        op_prefixes: &[],
     },
     DomainHint {
         keywords: &["git", "commit", "push", "pull", "merge", "rebase", "branch",
                      "clone", "stash", "cherry", "tag", "remote", "fetch", "log",
                      "blame", "bisect"],
         pack: "power_tools",
+        op_prefixes: &[],
+    },
+    // DevOps sub-domains — each hint only injects ops matching its prefixes,
+    // so "docker" tasks get 5 docker_* ops, not 52 devops ops.
+    DomainHint {
+        keywords: &["docker", "container", "image", "dockerfile", "compose"],
+        pack: "devops",
+        op_prefixes: &["docker_"],
+    },
+    DomainHint {
+        keywords: &["deploy", "fly", "flyctl", "ship", "staging", "production"],
+        pack: "devops",
+        op_prefixes: &["fly_"],
+    },
+    DomainHint {
+        keywords: &["pr", "pull-request", "issue", "github", "gh", "ci",
+                     "workflow", "pipeline", "gist", "actions"],
+        pack: "devops",
+        op_prefixes: &["gh_"],
+    },
+    DomainHint {
+        keywords: &["ssh", "scp", "remote", "tunnel", "bastion"],
+        pack: "devops",
+        op_prefixes: &["ssh_", "scp_"],
+    },
+    DomainHint {
+        keywords: &["sqlite", "database", "schema", "query", "sql", "db"],
+        pack: "devops",
+        op_prefixes: &["sqlite_"],
+    },
+    DomainHint {
+        keywords: &["curl", "download", "request", "api", "health",
+                     "status-code"],
+        pack: "devops",
+        op_prefixes: &["http_"],
+    },
+    DomainHint {
+        keywords: &["process", "pid", "kill", "pkill", "port", "listen",
+                     "socket"],
+        pack: "devops",
+        op_prefixes: &["ps_", "pkill_", "port_"],
+    },
+    DomainHint {
+        keywords: &["just", "justfile", "recipe", "makefile"],
+        pack: "devops",
+        op_prefixes: &["just_"],
+    },
+    DomainHint {
+        keywords: &["xcode", "xcodebuild", "xcrun", "simulator", "ios",
+                     "swift", "spm"],
+        pack: "devops",
+        op_prefixes: &["xcode_", "swift_"],
+    },
+    DomainHint {
+        keywords: &["ollama", "llm", "inference", "llama", "mistral", "gemma"],
+        pack: "devops",
+        op_prefixes: &["ollama_"],
+    },
+    // Build/script ops trigger broadly on "build", "install", "test", "format",
+    // "python", "node" — keep these as a catch-all for the remaining devops ops.
+    DomainHint {
+        keywords: &["install", "dependencies", "deps", "npm", "pip", "cargo",
+                     "python", "node", "restart", "hot-reload"],
+        pack: "devops",
+        op_prefixes: &["install_", "format_", "check_", "build_", "run_python",
+                        "run_node", "env_"],
     },
 ];
 
@@ -350,6 +423,13 @@ pub fn contextual_catalog(task: &str, read_only: bool) -> String {
                             Some(n) => n,
                             None => continue,
                         };
+                        // If the hint specifies op_prefixes, only include ops
+                        // whose name starts with one of those prefixes.
+                        if !hint.op_prefixes.is_empty()
+                            && !hint.op_prefixes.iter().any(|p| name.starts_with(p))
+                        {
+                            continue;
+                        }
                         if added_ops.contains(name) {
                             continue;
                         }
@@ -357,8 +437,16 @@ pub fn contextual_catalog(task: &str, read_only: bool) -> String {
                             .as_sequence()
                             .map(|seq| seq.iter().filter_map(|v| v.as_str()).collect())
                             .unwrap_or_default();
-                        if input_names.is_empty() {
-                            continue; // can't call without named params
+                        // Skip ops that have inputs but no input_names — we
+                        // can't generate a useful `tool(param=value)` call
+                        // without knowing the parameter names. Zero-input ops
+                        // are fine though: `tool()`.
+                        let inputs_count = op["inputs"]
+                            .as_sequence()
+                            .map(|s| s.len())
+                            .unwrap_or(0);
+                        if input_names.is_empty() && inputs_count > 0 {
+                            continue;
                         }
                         if read_only && is_write_op(name) {
                             continue;
@@ -675,5 +763,49 @@ mod tests {
         let catalog = contextual_catalog("compute statistics on data", false);
         assert!(catalog.contains("grep_code"), "should always include base tools");
         assert!(catalog.contains("write_file"), "should always include synthetic tools");
+    }
+
+    // -- Devops prefix-filtered domain hints --
+
+    #[test]
+    fn test_contextual_catalog_docker_only_injects_docker_ops() {
+        let catalog = contextual_catalog("list running docker containers", false);
+        assert!(catalog.contains("docker_ps"), "docker task should inject docker_ps: {}", catalog);
+        assert!(catalog.contains("docker_build"), "docker task should inject docker_build: {}", catalog);
+        // Should NOT inject unrelated devops ops
+        assert!(!catalog.contains("fly_deploy"), "docker task should not inject fly_deploy: {}", catalog);
+        assert!(!catalog.contains("ollama_"), "docker task should not inject ollama ops: {}", catalog);
+        assert!(!catalog.contains("gh_pr_"), "docker task should not inject gh ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_gh_injects_gh_ops() {
+        let catalog = contextual_catalog("check the CI pipeline status", false);
+        assert!(catalog.contains("gh_"), "ci task should inject gh_ ops: {}", catalog);
+        // Should NOT inject docker ops
+        assert!(!catalog.contains("docker_ps"), "ci task should not inject docker_ps: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_deploy_injects_fly_ops() {
+        let catalog = contextual_catalog("deploy the app to fly.io", false);
+        assert!(catalog.contains("fly_deploy"), "deploy task should inject fly_deploy: {}", catalog);
+        assert!(catalog.contains("fly_logs"), "deploy task should inject fly_logs: {}", catalog);
+        assert!(!catalog.contains("sqlite_"), "deploy task should not inject sqlite ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_ssh_injects_ssh_ops() {
+        let catalog = contextual_catalog("ssh into the remote server", false);
+        assert!(catalog.contains("ssh_run"), "ssh task should inject ssh_run: {}", catalog);
+        assert!(catalog.contains("scp_to"), "ssh task should inject scp_to: {}", catalog);
+        assert!(!catalog.contains("docker_"), "ssh task should not inject docker ops: {}", catalog);
+    }
+
+    #[test]
+    fn test_contextual_catalog_ollama_injects_ollama_ops() {
+        let catalog = contextual_catalog("list my ollama models", false);
+        assert!(catalog.contains("ollama_list"), "ollama task should inject ollama_list: {}", catalog);
+        assert!(!catalog.contains("docker_"), "ollama task should not inject docker ops: {}", catalog);
     }
 }

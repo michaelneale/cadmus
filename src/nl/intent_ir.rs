@@ -226,6 +226,10 @@ fn tree_to_intent(tree: &ParseNode, score: f64, lex: &Lexicon) -> Option<IntentI
         let mut params = HashMap::new();
         params.insert("where".to_string(), format!("kind: \"{}\"", concept));
 
+        // Preserve the original verb action so the compiler can use it
+        // for concept-ops dispatch (e.g., "list containers" → enumerate + docker_container).
+        params.insert("verb_action".to_string(), action.clone());
+
         // If we have a pattern, add it
         if let Some(ref pat) = pattern {
             params.insert("pattern".to_string(), pat.clone());
