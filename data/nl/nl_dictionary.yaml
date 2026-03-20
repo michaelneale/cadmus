@@ -3110,6 +3110,8 @@ algorithm_expansion:
 
   # macOS tasks domain
   changed: 80
+  changes: 80
+  pending: 80
   today: 80
   yesterday: 80
   midnight: 60
@@ -3334,3 +3336,42 @@ algorithm_expansion:
   environment: 60
   variable: 60
   clone: 80
+  # xcode/swift domain
+  xcode: 80
+  xcodebuild: 60
+  xcrun: 60
+  simulator: 80
+  simctl: 60
+  ios: 80
+  iphone: 60
+  ipad: 60
+  swift: 80
+  swiftbuild: 60
+  # ollama domain
+  ollama: 80
+  llm: 60
+  inference: 60
+  # CI/CD extended
+  ci: 80
+  workflow: 60
+  pipeline: 60
+  checks: 80
+  run: 80
+  runs: 60
+  rerun: 60
+  gist: 80
+  # code editing extended
+  rename: 80
+  refactor: 60
+  symbol: 80
+  todo: 80
+  fixme: 60
+  hack: 60
+  blame: 80
+  annotate: 60
+  comment: 80
+  uncomment: 60
+  # hot reload
+  restart: 80
+  reload: 60
+  hotreload: 60

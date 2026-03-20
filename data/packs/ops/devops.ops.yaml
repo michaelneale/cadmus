@@ -632,3 +632,271 @@ ops:
     racket_body: |
       (define (env-get var_name)
         (or (getenv var_name) (string-append var_name " is not set")))
+
+  # =========================================================================
+  # GitHub CLI: view PR details
+  # =========================================================================
+  - name: gh_pr_view
+    racket_symbol: "gh-pr-view"
+    inputs: ['String', 'String']
+    input_names: [dir, pr_number]
+    output: "String"
+    description: "(gh-pr-view dir pr-number) — view details of a pull request"
+    racket_body: |
+      (define (gh-pr-view dir pr_number)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh pr view " pr_number " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: view PR checks/CI status
+  # =========================================================================
+  - name: gh_pr_checks
+    racket_symbol: "gh-pr-checks"
+    inputs: ['String', 'String']
+    input_names: [dir, pr_number]
+    output: "String"
+    description: "(gh-pr-checks dir pr-number) — view CI check status for a pull request"
+    racket_body: |
+      (define (gh-pr-checks dir pr_number)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh pr checks " pr_number " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: view CI run logs
+  # =========================================================================
+  - name: gh_run_view
+    racket_symbol: "gh-run-view"
+    inputs: ['String', 'String']
+    input_names: [dir, run_id]
+    output: "String"
+    description: "(gh-run-view dir run-id) — view CI run details and failed logs"
+    racket_body: |
+      (define (gh-run-view dir run_id)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh run view " run_id " --log-failed 2>&1 | tail -50")))
+
+  # =========================================================================
+  # GitHub CLI: list CI runs
+  # =========================================================================
+  - name: gh_run_list
+    racket_symbol: "gh-run-list"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(gh-run-list dir) — list recent CI workflow runs"
+    racket_body: |
+      (define (gh-run-list dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir)
+          " && gh run list --limit 15 --json databaseId,headBranch,status,conclusion,displayTitle 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: rerun failed CI
+  # =========================================================================
+  - name: gh_run_rerun
+    racket_symbol: "gh-run-rerun"
+    inputs: ['String', 'String']
+    input_names: [dir, run_id]
+    output: "String"
+    description: "(gh-run-rerun dir run-id) — rerun failed jobs in a CI workflow run"
+    racket_body: |
+      (define (gh-run-rerun dir run_id)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh run rerun " run_id " --failed 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: create release
+  # =========================================================================
+  - name: gh_release_create
+    racket_symbol: "gh-release-create"
+    inputs: ['String', 'String', 'String']
+    input_names: [dir, tag, notes]
+    output: "String"
+    description: "(gh-release-create dir tag notes) — create a GitHub release with a tag"
+    racket_body: |
+      (define (gh-release-create dir tag notes)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh release create " (sq tag)
+          " --title " (sq tag) " --notes " (sq notes) " 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: list releases
+  # =========================================================================
+  - name: gh_release_list
+    racket_symbol: "gh-release-list"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(gh-release-list dir) — list releases for the repo"
+    racket_body: |
+      (define (gh-release-list dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && gh release list --limit 10 2>&1")))
+
+  # =========================================================================
+  # GitHub CLI: create gist
+  # =========================================================================
+  - name: gh_gist_create
+    racket_symbol: "gh-gist-create"
+    inputs: ['String', 'String']
+    input_names: [file, description]
+    output: "String"
+    description: "(gh-gist-create file description) — create a public gist from a file"
+    racket_body: |
+      (define (gh-gist-create file description)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "gh gist create " (sq file) " --desc " (sq description) " --public 2>&1")))
+
+  # =========================================================================
+  # Xcode: build iOS project
+  # =========================================================================
+  - name: xcode_build
+    racket_symbol: "xcode-build"
+    inputs: ['String', 'String']
+    input_names: [project_dir, scheme]
+    output: "String"
+    description: "(xcode-build project-dir scheme) — build an Xcode project for iOS Simulator"
+    racket_body: |
+      (define (xcode-build project_dir scheme)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq project_dir)
+          " && xcodebuild -scheme " (sq scheme)
+          " -sdk iphonesimulator -configuration Debug"
+          " build 2>&1 | tail -30")))
+
+  # =========================================================================
+  # Xcode: list available simulators
+  # =========================================================================
+  - name: xcode_list_sims
+    racket_symbol: "xcode-list-sims"
+    inputs: []
+    output: "String"
+    description: "(xcode-list-sims) — list available iOS simulators"
+    racket_body: |
+      (define (xcode-list-sims)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (sh "xcrun simctl list devices available | grep -i iphone | head -20"))
+
+  # =========================================================================
+  # Xcode: boot and install on simulator
+  # =========================================================================
+  - name: xcode_sim_install
+    racket_symbol: "xcode-sim-install"
+    inputs: ['String', 'String']
+    input_names: [sim_id, app_path]
+    output: "String"
+    description: "(xcode-sim-install sim-id app-path) — install an app on an iOS simulator"
+    racket_body: |
+      (define (xcode-sim-install sim_id app_path)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "xcrun simctl boot " (sq sim_id) " 2>/dev/null; "
+          "xcrun simctl install " (sq sim_id) " " (sq app_path) " 2>&1")))
+
+  # =========================================================================
+  # Xcode: swift build
+  # =========================================================================
+  - name: swift_build
+    racket_symbol: "swift-build"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(swift-build dir) — build a Swift package"
+    racket_body: |
+      (define (swift-build dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && swift build 2>&1 | tail -20")))
+
+  # =========================================================================
+  # Ollama: list local models
+  # =========================================================================
+  - name: ollama_list
+    racket_symbol: "ollama-list"
+    inputs: []
+    output: "String"
+    description: "(ollama-list) — list locally installed ollama models"
+    racket_body: |
+      (define (ollama-list)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (sh "ollama list 2>&1"))
+
+  # =========================================================================
+  # Ollama: pull a model
+  # =========================================================================
+  - name: ollama_pull
+    racket_symbol: "ollama-pull"
+    inputs: ['String']
+    input_names: [model]
+    output: "String"
+    description: "(ollama-pull model) — download an ollama model"
+    racket_body: |
+      (define (ollama-pull model)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "ollama pull " (sq model) " 2>&1 | tail -5")))
+
+  # =========================================================================
+  # Ollama: run inference
+  # =========================================================================
+  - name: ollama_run
+    racket_symbol: "ollama-run"
+    inputs: ['String', 'String']
+    input_names: [model, prompt]
+    output: "String"
+    description: "(ollama-run model prompt) — run inference with an ollama model"
+    racket_body: |
+      (define (ollama-run model prompt)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "echo " (sq prompt) " | ollama run " (sq model) " 2>&1")))
+
+  # =========================================================================
+  # Build: restart process after build (hot reload)
+  # =========================================================================
+  - name: build_and_restart
+    racket_symbol: "build-and-restart"
+    inputs: ['String', 'String']
+    input_names: [dir, process_pattern]
+    output: "String"
+    description: "(build-and-restart dir process-pattern) — build project then restart a process"
+    racket_body: |
+      (define (build-and-restart dir process_pattern)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (define build-cmd
+          (cond
+            [(file-exists? (string-append dir "/Cargo.toml"))
+             (string-append "cd " (sq dir) " && cargo build 2>&1 | tail -5")]
+            [(file-exists? (string-append dir "/package.json"))
+             (string-append "cd " (sq dir) " && npm run build 2>&1 | tail -5")]
+            [(file-exists? (string-append dir "/go.mod"))
+             (string-append "cd " (sq dir) " && go build ./... 2>&1 | tail -5")]
+            [else "echo 'no build system'"]))
+        (sh (string-append "pkill -f " (sq process_pattern) " 2>/dev/null; "
+          build-cmd " && echo 'build ok, process restarted'")))

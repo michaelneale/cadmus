@@ -328,3 +328,97 @@ ops:
         (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
         (sh (string-append "cd " (sq dir)
           " && git diff --name-only HEAD~5 2>/dev/null | sort -u")))
+
+  # =========================================================================
+  # Edit: rename a symbol across all source files
+  # =========================================================================
+  - name: rename_symbol
+    racket_symbol: "rename-symbol"
+    inputs: ['String', 'String', 'String']
+    input_names: [dir, old_name, new_name]
+    output: "String"
+    description: "(rename-symbol dir old-name new-name) — rename a function/variable/type across source files"
+    racket_body: |
+      (define (rename-symbol dir old_name new_name)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append
+          "grep -rl '\\b" old_name "\\b' " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.java'"
+          " 2>/dev/null | xargs sed -i '' 's/\\b" old_name "\\b/" new_name "/g' 2>/dev/null"
+          " && echo 'renamed " old_name " → " new_name " in:'"
+          " && grep -rl " (sq new_name) " " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.java'"
+          " 2>/dev/null")))
+
+  # =========================================================================
+  # Edit: add or update a comment above a pattern
+  # =========================================================================
+  - name: add_comment
+    racket_symbol: "add-comment"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, before_pattern, comment]
+    output: "String"
+    description: "(add-comment file before-pattern comment) — add a comment line above a pattern match"
+    racket_body: |
+      (define (add-comment file before_pattern comment)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "sed -i '' '/" before_pattern "/i\\\n" comment "' " (sq file)
+          " && grep -n -B1 " (sq before_pattern) " " (sq file) " | head -10")))
+
+  # =========================================================================
+  # Search: find TODOs and FIXMEs in codebase
+  # =========================================================================
+  - name: find_todos
+    racket_symbol: "find-todos"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(find-todos dir) — find all TODO, FIXME, HACK, XXX comments in source files"
+    racket_body: |
+      (define (find-todos dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "grep -rn 'TODO\\|FIXME\\|HACK\\|XXX\\|WARN' " (sq dir)
+          " --include='*.rs' --include='*.ts' --include='*.js' --include='*.py'"
+          " --include='*.go' --include='*.swift' --include='*.cpp' --include='*.java'"
+          " 2>/dev/null | head -50")))
+
+  # =========================================================================
+  # Search: show git blame for a file region
+  # =========================================================================
+  - name: blame_lines
+    racket_symbol: "blame-lines"
+    inputs: ['String', 'String', 'String']
+    input_names: [file, start, end_line]
+    output: "String"
+    description: "(blame-lines file start end) — show git blame for a range of lines"
+    racket_body: |
+      (define (blame-lines file start end_line)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "git blame -L " start "," end_line " " (sq file) " 2>&1")))
+
+  # =========================================================================
+  # Navigate: show diff of unstaged changes
+  # =========================================================================
+  - name: show_changes
+    racket_symbol: "show-changes"
+    inputs: ['String']
+    input_names: [dir]
+    output: "String"
+    description: "(show-changes dir) — show what files changed and a summary diff"
+    racket_body: |
+      (define (show-changes dir)
+        (local-require racket/system)
+        (define (sh cmd) (with-output-to-string (lambda () (system cmd))))
+        (define (sq s) (string-append "'" (string-replace s "'" "'\\''") "'"))
+        (sh (string-append "cd " (sq dir) " && echo '=== Status ===' && git status --short"
+          " && echo '' && echo '=== Diff ===' && git diff --stat 2>/dev/null")))

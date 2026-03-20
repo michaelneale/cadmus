@@ -1153,6 +1153,94 @@ verbs:
     action: env_get
     synonyms: [get_env, show_env, echo_env]
 
+  # --- GitHub extended -------------------------------------------------------
+
+  - word: gh_pr_view
+    action: gh_pr_view
+    synonyms: [view_pr, pr_details, pr_info]
+
+  - word: gh_pr_checks
+    action: gh_pr_checks
+    synonyms: [ci_checks, pr_ci, check_ci]
+
+  - word: gh_run_view
+    action: gh_run_view
+    synonyms: [view_run, ci_logs, run_logs]
+
+  - word: gh_run_list
+    action: gh_run_list
+    synonyms: [list_runs, ci_runs, workflow_runs]
+
+  - word: gh_run_rerun
+    action: gh_run_rerun
+    synonyms: [rerun_ci, retry_ci, rerun_failed]
+
+  - word: gh_release_create
+    action: gh_release_create
+    synonyms: [create_release, tag_release, new_release]
+
+  - word: gh_release_list
+    action: gh_release_list
+    synonyms: [list_releases, show_releases, releases]
+
+  - word: gh_gist_create
+    action: gh_gist_create
+    synonyms: [create_gist, share_gist, post_gist]
+
+  # --- Xcode / Swift --------------------------------------------------------
+
+  - word: xcode_build
+    action: xcode_build
+    synonyms: [build_ios, ios_build, xcodebuild_app]
+
+  - word: swift_build
+    action: swift_build
+    synonyms: [swiftbuild, spm_build, swift_compile]
+
+  - word: xcode_list_sims
+    action: xcode_list_sims
+    synonyms: [list_simulators, ios_sims, simctl_list]
+
+  # --- Ollama / LLM ---------------------------------------------------------
+
+  - word: ollama_list
+    action: ollama_list
+    synonyms: [list_models, local_models, ollama_models]
+
+  - word: ollama_pull
+    action: ollama_pull
+    synonyms: [pull_model, download_model, get_model]
+
+  - word: ollama_run
+    action: ollama_run
+    synonyms: [run_model, infer, llm_run]
+
+  # --- Code editing extended -------------------------------------------------
+
+  - word: rename_symbol
+    action: rename_symbol
+    synonyms: [refactor_rename, codemod, rename_var]
+
+  - word: add_comment
+    action: add_comment
+    synonyms: [annotate_code, document_code, add_doc]
+
+  - word: find_todos
+    action: find_todos
+    synonyms: [list_todos, show_fixmes, find_fixme]
+
+  - word: blame_lines
+    action: blame_lines
+    synonyms: [git_blame, line_blame, who_changed]
+
+  - word: show_changes
+    action: show_changes
+    synonyms: [whats_changed, pending_changes, local_changes]
+
+  - word: build_and_restart
+    action: build_and_restart
+    synonyms: [hot_reload, rebuild_restart, reload_server]
+
 # ---------------------------------------------------------------------------
 # Nouns: object words → concept labels
 # ---------------------------------------------------------------------------
